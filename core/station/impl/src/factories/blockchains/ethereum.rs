@@ -3,7 +3,7 @@ use super::{
     TRANSACTION_SUBMITTED_DETAILS_TRANSACTION_HASH_KEY,
 };
 use crate::{
-    core::ic_cdk::api::{id as station_canister_self_id, print},
+    core::ic_cdk::api::print,
     models::{Account, Metadata, Transfer},
 };
 use alloy::{
@@ -29,7 +29,6 @@ use ic_cdk::api::management_canister::ecdsa::{
 
 #[derive(Debug)]
 pub struct Ethereum {
-    station_canister_id: Principal,
     chain: alloy_chains::Chain,
 }
 
@@ -41,7 +40,6 @@ pub enum EthereumNetwork {
 impl Ethereum {
     pub fn create() -> Self {
         Self {
-            station_canister_id: station_canister_self_id(),
             chain: alloy_chains::Chain::sepolia(),
         }
     }
@@ -83,7 +81,7 @@ impl BlockchainApi for Ethereum {
     ) -> BlockchainApiResult<BlockchainTransactionSubmitted> {
         let nonce = 0u64;
         let gas_limit = 100000u128;
-        let max_fee_per_gas = 100u128;
+        let max_fee_per_gas: u128 = 40 * 10u128.pow(9); // gwei
         let max_priority_fee_per_gas = 100u128;
 
         let transaction = alloy::consensus::TxEip1559 {
@@ -200,7 +198,7 @@ pub async fn send_raw_transaction(chain: &alloy_chains::Chain, raw_tx: &[u8]) ->
 
     print(format!("got services"));
 
-    let cycles = 10000000;
+    let cycles = 1000000000;
 
     let raw_tx_hex = hex::encode_prefixed(raw_tx);
     print(format!("send_tx: raw_tx_hex: {:?}", raw_tx_hex));
