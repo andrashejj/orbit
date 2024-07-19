@@ -102,8 +102,9 @@ impl BlockchainApi for Ethereum {
         };
 
         let signature = {
+            let tx_signature_hash = transaction.signature_hash().to_vec();
             let (signature,) = sign_with_ecdsa(SignWithEcdsaArgument {
-                message_hash: transaction.signature_hash().to_vec(),
+                message_hash: tx_signature_hash.clone(),
                 derivation_path: principal_to_derivation_path(&account),
                 key_id: get_key_id(),
             })
@@ -111,14 +112,35 @@ impl BlockchainApi for Ethereum {
             .expect("failed to sign transaction");
 
             let sig_bytes = signature.signature.as_slice();
-            alloy::signers::Signature::try_from(sig_bytes).expect("failed to decode signature")
+            let public_key = ecdsa_pubkey_of(&account).await;
+            let parity = y_parity(&tx_signature_hash, sig_bytes, &public_key);
+            alloy::signers::Signature::from_bytes_and_parity(sig_bytes, parity)
+                .expect("failed to decode signature")
         };
 
+        {
+            // TODO: just to test the recovery. Remove this when done.
+            let test_recovered_address = signature
+                .recover_address_from_prehash(&transaction.signature_hash())
+                .expect("failed to recover address");
+            let account_address = get_address_from_account(&account).await;
+            print(format!(
+                "test_recovered_address: {} {:?} {:?}",
+                hex::encode_prefixed(test_recovered_address).to_lowercase()
+                    == account_address.to_lowercase(),
+                hex::encode_prefixed(test_recovered_address),
+                account_address
+            ));
+        }
+
+        print(format!("signature: {:?}", signature));
         let tx_signed = transaction.into_signed(signature);
         let tx_envelope: alloy::consensus::TxEnvelope = tx_signed.into();
         let tx_encoded = tx_envelope.encoded_2718();
+        print(format!("tx_encoded: {:?}", tx_encoded));
 
         let sent_tx_hash = send_raw_transaction(&self.chain, &tx_encoded).await;
+        print(format!("sent_tx_hash: {:?}", sent_tx_hash));
 
         Ok(BlockchainTransactionSubmitted {
             details: vec![(
@@ -170,18 +192,23 @@ fn principal_to_derivation_path(account: &Account) -> Vec<Vec<u8>> {
 
 pub async fn send_raw_transaction(chain: &alloy_chains::Chain, raw_tx: &[u8]) -> String {
     let config = None;
+    print(format!("getting services for chain: {:?}", chain));
     let services = hashmap! {
         alloy_chains::Chain::sepolia().id() => RpcServices::EthSepolia(Some(vec![EthSepoliaService::Alchemy])),
         // alloy_chains::Chain::mainnet().id() => RpcServices::EthMainnet(None), // TODO: support mainnet
     }.remove(&chain.id()).expect("chain not supported");
 
+    print(format!("got services"));
+
     let cycles = 10000000;
 
     let raw_tx_hex = hex::encode_prefixed(raw_tx);
-    let status = match EVM_RPC
+    print(format!("send_tx: raw_tx_hex: {:?}", raw_tx_hex));
+    let send_result = EVM_RPC
         .eth_send_raw_transaction(services, config, raw_tx_hex, cycles)
-        .await
-    {
+        .await;
+    print(format!("send_tx: send_result: {:?}", send_result));
+    let status = match send_result {
         Ok((res,)) => match res {
             MultiSendRawTransactionResult::Consistent(status) => match status {
                 SendRawTransactionResult::Ok(status) => status,
@@ -195,11 +222,35 @@ pub async fn send_raw_transaction(chain: &alloy_chains::Chain, raw_tx: &[u8]) ->
         },
         Err(e) => ic_cdk::trap(format!("Error: {:?}", e).as_str()),
     };
+    print(format!("send_tx: status: {:?}", status));
     let tx_hash = match status {
         SendRawTransactionStatus::Ok(status) => status,
         error => {
             ic_cdk::trap(format!("Error: {:?}", error).as_str());
         }
     };
+    print(format!("send_tx: tx_hash: {:?}", tx_hash));
     tx_hash.expect("tx hash is none")
+}
+
+/// Computes the parity bit allowing to recover the public key from the signature.
+fn y_parity(prehash: &[u8], sig: &[u8], pubkey: &[u8]) -> u64 {
+    use alloy::signers::k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
+
+    let orig_key = VerifyingKey::from_sec1_bytes(pubkey).expect("failed to parse the pubkey");
+    let signature = Signature::try_from(sig).unwrap();
+    for parity in [0u8, 1] {
+        let recid = RecoveryId::try_from(parity).unwrap();
+        let recovered_key = VerifyingKey::recover_from_prehash(prehash, &signature, recid)
+            .expect("failed to recover key");
+        if recovered_key == orig_key {
+            return u64::from(parity);
+        }
+    }
+
+    panic!(
+        "failed to recover the parity bit from a signature; sig: {}, pubkey: {}",
+        hex::encode_prefixed(sig),
+        hex::encode_prefixed(pubkey)
+    )
 }
