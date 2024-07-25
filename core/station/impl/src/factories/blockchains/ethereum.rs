@@ -9,7 +9,7 @@ use crate::{
 use alloy::{
     consensus::SignableTransaction,
     eips::eip2718::Encodable2718,
-    primitives::{hex, Address, TxKind, U256},
+    primitives::{hex, Address, TxKind, B256, U256},
     signers::k256::ecdsa,
 };
 use async_trait::async_trait;
@@ -49,7 +49,7 @@ impl Ethereum {
 impl BlockchainApi for Ethereum {
     async fn generate_address(&self, account: &Account) -> BlockchainApiResult<String> {
         let address = get_address_from_account(account).await;
-        Ok(address)
+        Ok(address.to_string())
     }
 
     async fn balance(&self, account: &Account) -> BlockchainApiResult<BigUint> {
@@ -79,10 +79,10 @@ impl BlockchainApi for Ethereum {
     async fn submit_transaction(
         &self,
         account: &Account,
-        _transfer: &Transfer,
+        transfer: &Transfer,
     ) -> BlockchainApiResult<BlockchainTransactionSubmitted> {
         let nonce = 0u64;
-        let gas_limit = 100000u128;
+        let gas_limit = 50000u128;
         let max_fee_per_gas: u128 = 40 * 10u128.pow(9); // gwei
         let max_priority_fee_per_gas = 100u128;
 
@@ -93,54 +93,14 @@ impl BlockchainApi for Ethereum {
             max_fee_per_gas,
             max_priority_fee_per_gas,
             to: TxKind::Call(
-                Address::from_str(&_transfer.to_address)
+                Address::from_str(&transfer.to_address)
                     .expect("failed to parse the destination address"),
             ),
-            value: alloy::primitives::U256::from_be_slice(&_transfer.amount.0.to_bytes_be()),
+            value: nat_to_u256(&transfer.amount),
             access_list: alloy::eips::eip2930::AccessList::default(),
             input: alloy::primitives::Bytes::default(),
         };
-
-        let signature = {
-            let tx_signature_hash = transaction.signature_hash().to_vec();
-            let (signature,) = sign_with_ecdsa(SignWithEcdsaArgument {
-                message_hash: tx_signature_hash.clone(),
-                derivation_path: principal_to_derivation_path(&account),
-                key_id: get_key_id(),
-            })
-            .await
-            .expect("failed to sign transaction");
-
-            let sig_bytes = signature.signature.as_slice();
-            let public_key = ecdsa_pubkey_of(&account).await;
-            let parity = y_parity(&tx_signature_hash, sig_bytes, &public_key);
-            alloy::signers::Signature::from_bytes_and_parity(sig_bytes, parity)
-                .expect("failed to decode signature")
-        };
-
-        {
-            // TODO: just to test the recovery. Remove this when done.
-            let test_recovered_address = signature
-                .recover_address_from_prehash(&transaction.signature_hash())
-                .expect("failed to recover address");
-            let account_address = get_address_from_account(&account).await;
-            print(format!(
-                "test_recovered_address: {} {:?} {:?}",
-                hex::encode_prefixed(test_recovered_address).to_lowercase()
-                    == account_address.to_lowercase(),
-                hex::encode_prefixed(test_recovered_address),
-                account_address
-            ));
-        }
-
-        print(format!("signature: {:?}", signature));
-        let tx_signed = transaction.into_signed(signature);
-        let tx_envelope: alloy::consensus::TxEnvelope = tx_signed.into();
-        let tx_encoded = tx_envelope.encoded_2718();
-        print(format!("tx_encoded: {:?}", tx_encoded));
-
-        let sent_tx_hash = eth_send_raw_transaction(&self.chain, &tx_encoded).await;
-        print(format!("sent_tx_hash: {:?}", sent_tx_hash));
+        let sent_tx_hash = sign_and_send_transaction(&account, &self.chain, transaction).await;
 
         Ok(BlockchainTransactionSubmitted {
             details: vec![(
@@ -162,10 +122,10 @@ async fn ecdsa_pubkey_of(account: &Account) -> Vec<u8> {
     key.public_key
 }
 
-async fn get_address_from_account(account: &Account) -> String {
+pub async fn get_address_from_account(account: &Account) -> Address {
     let public_key = ecdsa_pubkey_of(&account).await;
     let address = get_address_from_public_key(&public_key);
-    hex::encode_prefixed(&address)
+    address
 }
 
 fn get_address_from_public_key(public_key: &[u8]) -> Address {
@@ -225,16 +185,31 @@ pub async fn eth_send_raw_transaction(chain: &alloy_chains::Chain, raw_tx: &[u8]
     tx_hash.expect("tx hash is none")
 }
 
-async fn eth_get_balance(chain: &alloy_chains::Chain, address: &str) -> U256 {
+async fn eth_get_balance(chain: &alloy_chains::Chain, address: &Address) -> U256 {
+    let deserialized = request_evm_rpc(
+        chain,
+        "eth_getBalance",
+        serde_json::json!([address.to_string(), "latest"]),
+    )
+    .await;
+    let balance_hex = deserialized
+        .as_str()
+        .expect("balance result is not a string");
+
+    let balance = U256::from_str(balance_hex).expect("failed to decode balance hex");
+
+    balance
+}
+
+pub async fn request_evm_rpc(
+    chain: &alloy_chains::Chain,
+    method: &str,
+    params: serde_json::Value,
+) -> serde_json::Value {
     let services = get_evm_services(chain);
     let cycles = 1000000000;
-    let evm_rpc_request = serde_json::json!({
-        "method": "eth_getBalance",
-        "params": [address, "latest"],
-        "id": rand::random::<u64>(),
-        "jsonrpc": "2.0",
-    })
-    .to_string();
+
+    let evm_rpc_request = serde_json::json!({ "method": method, "params": params, "id": rand::random::<u64>(), "jsonrpc": "2.0" }).to_string();
 
     let (result,) = EVM_RPC
         .request(services.0, evm_rpc_request, 1000_u64, cycles)
@@ -248,14 +223,46 @@ async fn eth_get_balance(chain: &alloy_chains::Chain, address: &str) -> U256 {
         }
     };
     let deserialized = serde_json::from_str::<serde_json::Value>(&unwrapped_result)
-        .expect("failed to deserialize get balance response");
-    let balance_hex = deserialized["result"]
-        .as_str()
-        .expect("balance result is not a string");
+        .expect("failed to deserialize evm rpc response");
+    deserialized["result"].clone()
+}
 
-    let balance = U256::from_str(balance_hex).expect("failed to decode balance hex");
+async fn sign_with_account(account: &Account, message_hash: B256) -> alloy::signers::Signature {
+    let message_hash = message_hash.to_vec();
+    let signature = {
+        let (signature,) = sign_with_ecdsa(SignWithEcdsaArgument {
+            message_hash: message_hash.clone(),
+            derivation_path: principal_to_derivation_path(&account),
+            key_id: get_key_id(),
+        })
+        .await
+        .expect("failed to sign transaction");
 
-    balance
+        let sig_bytes = signature.signature.as_slice();
+        let public_key = ecdsa_pubkey_of(&account).await;
+        let parity = y_parity(&message_hash, sig_bytes, &public_key);
+        alloy::signers::Signature::from_bytes_and_parity(sig_bytes, parity)
+            .expect("failed to decode signature")
+    };
+    signature
+}
+
+pub fn nat_to_u256(nat: &candid::Nat) -> U256 {
+    U256::from_be_slice(&nat.0.to_bytes_be())
+}
+
+pub async fn sign_and_send_transaction(
+    account: &Account,
+    chain: &alloy_chains::Chain,
+    transaction: alloy::consensus::TxEip1559,
+) -> String {
+    let signature = sign_with_account(&account, transaction.signature_hash()).await;
+    let tx_signed = transaction.into_signed(signature);
+    let tx_envelope: alloy::consensus::TxEnvelope = tx_signed.into();
+    let tx_encoded = tx_envelope.encoded_2718();
+    let sent_tx_hash = eth_send_raw_transaction(chain, &tx_encoded).await;
+    print(format!("sent tx hash: {:?}", sent_tx_hash));
+    sent_tx_hash
 }
 
 fn get_evm_services(chain: &alloy_chains::Chain) -> (RpcService, RpcServices) {
