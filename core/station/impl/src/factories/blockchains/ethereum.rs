@@ -42,6 +42,34 @@ impl Ethereum {
             chain: alloy_chains::Chain::sepolia(),
         }
     }
+
+    pub async fn estimate_transaction_fee(&self) -> BlockchainApiResult<BlockchainTransactionFee> {
+        let max_fee_per_gas: u128 = eth_get_gas_price(&self.chain).await?;
+        let max_priority_fee_per_gas = max_fee_per_gas / 2; // pay up to 50% more (for faster confirmations)
+        let to_address = address!("0000000000000000000000000000000000000000");
+        let gas_limit = eth_estimate_gas(
+            &self.chain,
+            &to_address.to_string(),
+            &alloy::primitives::Bytes::default(),
+            U256::from(0),
+        )
+        .await?;
+        let fee = gas_limit * max_fee_per_gas;
+        Ok(BlockchainTransactionFee {
+            fee: BigUint::from(fee),
+            metadata: Metadata::new(BTreeMap::from([
+                (METADATA_KEY_GAS_LIMIT.to_owned(), gas_limit.to_string()),
+                (
+                    METADATA_KEY_MAX_FEE_PER_GAS.to_owned(),
+                    max_fee_per_gas.to_string(),
+                ),
+                (
+                    METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS.to_owned(),
+                    max_priority_fee_per_gas.to_string(),
+                ),
+            ])),
+        })
+    }
 }
 
 const METADATA_KEY_GAS_LIMIT: &str = "gas_limit";
@@ -68,31 +96,7 @@ impl BlockchainApi for Ethereum {
         &self,
         _account: &Account,
     ) -> BlockchainApiResult<BlockchainTransactionFee> {
-        let max_fee_per_gas: u128 = 40 * 10u128.pow(9);
-        let max_priority_fee_per_gas = 0128;
-        let to_address = address!("0000000000000000000000000000000000000000");
-        let gas_limit = eth_estimate_gas(
-            &self.chain,
-            &to_address.to_string(),
-            &alloy::primitives::Bytes::default(),
-            U256::from(0),
-        )
-        .await?;
-        let fee = gas_limit * max_fee_per_gas;
-        Ok(BlockchainTransactionFee {
-            fee: BigUint::from(fee),
-            metadata: Metadata::new(BTreeMap::from([
-                (METADATA_KEY_GAS_LIMIT.to_owned(), gas_limit.to_string()),
-                (
-                    METADATA_KEY_MAX_FEE_PER_GAS.to_owned(),
-                    max_fee_per_gas.to_string(),
-                ),
-                (
-                    METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS.to_owned(),
-                    max_priority_fee_per_gas.to_string(),
-                ),
-            ])),
-        })
+        self.estimate_transaction_fee().await
     }
 
     fn default_network(&self) -> String {
@@ -106,12 +110,13 @@ impl BlockchainApi for Ethereum {
     ) -> BlockchainApiResult<BlockchainTransactionSubmitted> {
         let nonce = eth_get_transaction_count(&self.chain, &account.address).await?;
         let input = alloy::primitives::Bytes::default();
+        let fee = self.estimate_transaction_fee().await?;
         let value = nat_to_u256(&transfer.amount);
-        let gas_limit = get_metadata_value::<u128>(&transfer.metadata, METADATA_KEY_GAS_LIMIT)?;
+        let gas_limit = get_metadata_value::<u128>(&fee.metadata, METADATA_KEY_GAS_LIMIT)?;
         let max_fee_per_gas =
-            get_metadata_value::<u128>(&transfer.metadata, METADATA_KEY_MAX_FEE_PER_GAS)?;
+            get_metadata_value::<u128>(&fee.metadata, METADATA_KEY_MAX_FEE_PER_GAS)?;
         let max_priority_fee_per_gas =
-            get_metadata_value::<u128>(&transfer.metadata, METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS)?;
+            get_metadata_value::<u128>(&fee.metadata, METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS)?;
 
         let transaction = alloy::consensus::TxEip1559 {
             chain_id: self.chain.id(),
@@ -317,6 +322,22 @@ async fn eth_estimate_gas(
         }
     })?;
     Ok(parsed.to::<u128>())
+}
+
+async fn eth_get_gas_price(chain: &alloy_chains::Chain) -> Result<u128, BlockchainApiError> {
+    let deserialized = request_evm_rpc(chain, "eth_gasPrice", serde_json::json!([])).await?;
+    let gas_price_hex =
+        deserialized
+            .as_str()
+            .ok_or(BlockchainApiError::BlockchainNetworkError {
+                info: "RPC did not return gas price ".to_owned(),
+            })?;
+
+    let gas_price =
+        U256::from_str(gas_price_hex).map_err(|_e| BlockchainApiError::BlockchainNetworkError {
+            info: "Failed to parse gas price".to_owned(),
+        })?;
+    Ok(gas_price.to::<u128>())
 }
 
 pub async fn request_evm_rpc(
