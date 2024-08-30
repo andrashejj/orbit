@@ -1,7 +1,10 @@
 use super::{
-    nat_to_u256, BlockchainApi, BlockchainApiResult, BlockchainTransactionFee,
-    BlockchainTransactionSubmitted, TRANSACTION_SUBMITTED_DETAILS_TRANSACTION_HASH_KEY,
+    estimate_transaction_fee, eth_get_transaction_count, get_metadata_value, nat_to_u256,
+    BlockchainApi, BlockchainApiResult, BlockchainTransactionFee, BlockchainTransactionSubmitted,
+    METADATA_KEY_GAS_LIMIT, METADATA_KEY_MAX_FEE_PER_GAS, METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS,
+    TRANSACTION_SUBMITTED_DETAILS_TRANSACTION_HASH_KEY,
 };
+use crate::errors::BlockchainApiError;
 use crate::factories::blockchains::ethereum::{
     get_address_from_account, request_evm_rpc, sign_and_send_transaction,
 };
@@ -10,6 +13,7 @@ use crate::{
     models::{Account, Metadata, Transfer},
 };
 use alloy::dyn_abi::DynSolValue;
+use alloy::hex::FromHex;
 use alloy::{
     contract::Interface,
     primitives::{Address, TxKind, U256},
@@ -35,7 +39,11 @@ impl EthereumErc20 {
 }
 
 impl EthereumErc20 {
-    async fn get_balance_from_chain(&self, address: &Address) -> U256 {
+    async fn get_balance_from_chain(&self, address: &str) -> Result<U256, BlockchainApiError> {
+        let address =
+            Address::from_hex(address).map_err(|_e| BlockchainApiError::FetchBalanceFailed {
+                account_id: address.to_string(),
+            })?;
         let deserialized = request_evm_rpc(
             &self.chain,
             "eth_call",
@@ -43,34 +51,50 @@ impl EthereumErc20 {
                 {
                     "to": self.token_address.to_string(),
                     "data": ERC20_INTERFACE.encode_input("balanceOf", &[
-                        DynSolValue::from(address.clone()),
-                    ]).expect("failed to parse the input"),
+                        DynSolValue::from(address),
+                    ]).map_err(|_e| BlockchainApiError::FetchBalanceFailed {
+                        account_id: address.to_string(),
+                    })?,
                 },
                 "latest",
             ]),
         )
-        .await;
+        .await?;
         print(format!("erc20 balance deserialized: {:?}", deserialized));
-        let balance_hex = deserialized
-            .as_str()
-            .expect("balance result is not a string");
+        let balance_hex =
+            deserialized
+                .as_str()
+                .ok_or_else(|| BlockchainApiError::FetchBalanceFailed {
+                    account_id: address.to_string(),
+                })?;
 
-        let balance = U256::from_str(balance_hex).expect("failed to decode balance hex");
+        let balance =
+            U256::from_str(balance_hex).map_err(|_| BlockchainApiError::FetchBalanceFailed {
+                account_id: address.to_string(),
+            })?;
 
-        balance
+        Ok(balance)
+    }
+
+    async fn estimate_transaction_fee(
+        &self,
+        to_address: &str,
+        data: &alloy::primitives::Bytes,
+        value: U256,
+    ) -> BlockchainApiResult<BlockchainTransactionFee> {
+        estimate_transaction_fee(&self.chain, to_address, data, value).await
     }
 }
 
 #[async_trait]
 impl BlockchainApi for EthereumErc20 {
     async fn generate_address(&self, account: &Account) -> BlockchainApiResult<String> {
-        let address = get_address_from_account(account).await;
-        Ok(address.to_string())
+        let address = get_address_from_account(account).await?;
+        Ok(address)
     }
 
     async fn balance(&self, account: &Account) -> BlockchainApiResult<BigUint> {
-        let address = get_address_from_account(account).await;
-        let balance = self.get_balance_from_chain(&address).await;
+        let balance = self.get_balance_from_chain(&account.address).await?;
         Ok(BigUint::from_bytes_be(&balance.to_be_bytes_vec()))
     }
 
@@ -97,10 +121,30 @@ impl BlockchainApi for EthereumErc20 {
         account: &Account,
         transfer: &Transfer,
     ) -> BlockchainApiResult<BlockchainTransactionSubmitted> {
-        let nonce = 0u64;
-        let gas_limit = 50000u128;
-        let max_fee_per_gas: u128 = 40 * 10u128.pow(9); // gwei
-        let max_priority_fee_per_gas = 100u128;
+        let nonce = eth_get_transaction_count(&self.chain, &account.address).await?;
+        let value = U256::from(0);
+        let to_address = self.token_address;
+
+        let data = ERC20_INTERFACE
+            .encode_input(
+                "transfer",
+                &[
+                    DynSolValue::from(transfer.to_address.clone()),
+                    DynSolValue::from(nat_to_u256(&transfer.amount)),
+                ],
+            )
+            .map_err(|e| BlockchainApiError::TransactionSubmitFailed {
+                info: e.to_string(),
+            })?
+            .into();
+        let fee = self
+            .estimate_transaction_fee(&to_address.to_string(), &data, value)
+            .await?;
+        let gas_limit = get_metadata_value::<u128>(&fee.metadata, METADATA_KEY_GAS_LIMIT)?;
+        let max_fee_per_gas =
+            get_metadata_value::<u128>(&fee.metadata, METADATA_KEY_MAX_FEE_PER_GAS)?;
+        let max_priority_fee_per_gas =
+            get_metadata_value::<u128>(&fee.metadata, METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS)?;
 
         let transaction = alloy::consensus::TxEip1559 {
             chain_id: self.chain.id(),
@@ -108,22 +152,13 @@ impl BlockchainApi for EthereumErc20 {
             gas_limit,
             max_fee_per_gas,
             max_priority_fee_per_gas,
-            to: TxKind::Call(self.token_address),
-            value: U256::from(0),
+            to: TxKind::Call(to_address),
+            value,
             access_list: alloy::eips::eip2930::AccessList::default(),
-            input: ERC20_INTERFACE
-                .encode_input(
-                    "transfer",
-                    &[
-                        DynSolValue::from(transfer.to_address.clone()),
-                        DynSolValue::from(nat_to_u256(&transfer.amount)),
-                    ],
-                )
-                .expect("failed to parse the input")
-                .into(),
+            input: data,
         };
 
-        let sent_tx_hash = sign_and_send_transaction(&account, &self.chain, transaction).await;
+        let sent_tx_hash = sign_and_send_transaction(&account, &self.chain, transaction).await?;
 
         Ok(BlockchainTransactionSubmitted {
             details: vec![(
