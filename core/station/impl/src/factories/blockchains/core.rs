@@ -84,13 +84,11 @@ impl BlockchainApiFactory {
         blockchain: &Blockchain,
         standard: &BlockchainStandard,
     ) -> Result<Box<dyn BlockchainApi>, FactoryError> {
-        match (blockchain, standard) {
-            (Blockchain::InternetComputer, BlockchainStandard::Native) => {
-                Ok(Box::new(InternetComputer::create()))
-            }
-            (Blockchain::Ethereum, BlockchainStandard::Native) => Ok(Box::new(Ethereum::create())),
-            // TODO: implement Bitcoin here
-            (blockchain, standard) => Err(FactoryError::UnsupportedBlockchainAccount {
+        match blockchain {
+            Blockchain::InternetComputer => Ok(Box::new(InternetComputer::create())),
+            Blockchain::Ethereum => Ok(Box::new(Ethereum::create(false))),
+            Blockchain::EthereumSepolia => Ok(Box::new(Ethereum::create(true))),
+            blockchain => Err(FactoryError::UnsupportedBlockchainAccount {
                 blockchain: blockchain.to_string(),
                 standard: standard.to_string(),
             }),

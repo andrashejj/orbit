@@ -19,5 +19,12 @@ thread_local! {
             name: "Ethereum".to_string(),
             metadata: Metadata::default(),
         },
+        Asset {
+            blockchain: Blockchain::EthereumSepolia,
+            standard: BlockchainStandard::Native,
+            symbol: "ETH".to_string(),
+            name: "Ethereum Sepolia".to_string(),
+            metadata: Metadata::default(),
+        }
       ].into_iter().collect());
 }

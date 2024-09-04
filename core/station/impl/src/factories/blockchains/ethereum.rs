@@ -37,9 +37,13 @@ pub enum EthereumNetwork {
 }
 
 impl Ethereum {
-    pub fn create() -> Self {
+    pub fn create(testnet: bool) -> Self {
         Self {
-            chain: alloy_chains::Chain::sepolia(),
+            chain: if testnet {
+                alloy_chains::Chain::sepolia()
+            } else {
+                alloy_chains::Chain::mainnet()
+            },
         }
     }
 
