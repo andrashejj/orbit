@@ -6,3 +6,6 @@ pub use internet_computer::*;
 
 mod ethereum;
 pub use ethereum::*;
+
+mod erc20;
+pub use erc20::*;

@@ -43,38 +43,24 @@ impl Ethereum {
         }
     }
 
-    pub async fn estimate_transaction_fee(&self) -> BlockchainApiResult<BlockchainTransactionFee> {
-        let max_fee_per_gas: u128 = eth_get_gas_price(&self.chain).await?;
-        let max_priority_fee_per_gas = max_fee_per_gas / 2; // pay up to 50% more (for faster confirmations)
-        let to_address = address!("0000000000000000000000000000000000000000");
-        let gas_limit = eth_estimate_gas(
+    async fn estimate_transaction_fee(
+        &self,
+        to_address: &str,
+        value: U256,
+    ) -> BlockchainApiResult<BlockchainTransactionFee> {
+        estimate_transaction_fee(
             &self.chain,
-            &to_address.to_string(),
+            to_address,
             &alloy::primitives::Bytes::default(),
-            U256::from(0),
+            value,
         )
-        .await?;
-        let fee = gas_limit * max_fee_per_gas;
-        Ok(BlockchainTransactionFee {
-            fee: BigUint::from(fee),
-            metadata: Metadata::new(BTreeMap::from([
-                (METADATA_KEY_GAS_LIMIT.to_owned(), gas_limit.to_string()),
-                (
-                    METADATA_KEY_MAX_FEE_PER_GAS.to_owned(),
-                    max_fee_per_gas.to_string(),
-                ),
-                (
-                    METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS.to_owned(),
-                    max_priority_fee_per_gas.to_string(),
-                ),
-            ])),
-        })
+        .await
     }
 }
 
-const METADATA_KEY_GAS_LIMIT: &str = "gas_limit";
-const METADATA_KEY_MAX_FEE_PER_GAS: &str = "max_fee_per_gas";
-const METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS: &str = "max_priority_fee_per_gas";
+pub const METADATA_KEY_GAS_LIMIT: &str = "gas_limit";
+pub const METADATA_KEY_MAX_FEE_PER_GAS: &str = "max_fee_per_gas";
+pub const METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS: &str = "max_priority_fee_per_gas";
 
 #[async_trait]
 impl BlockchainApi for Ethereum {
@@ -96,7 +82,9 @@ impl BlockchainApi for Ethereum {
         &self,
         _account: &Account,
     ) -> BlockchainApiResult<BlockchainTransactionFee> {
-        self.estimate_transaction_fee().await
+        let to_address = address!("0000000000000000000000000000000000000000");
+        self.estimate_transaction_fee(&to_address.to_string(), U256::from(0))
+            .await
     }
 
     fn default_network(&self) -> String {
@@ -110,8 +98,10 @@ impl BlockchainApi for Ethereum {
     ) -> BlockchainApiResult<BlockchainTransactionSubmitted> {
         let nonce = eth_get_transaction_count(&self.chain, &account.address).await?;
         let input = alloy::primitives::Bytes::default();
-        let fee = self.estimate_transaction_fee().await?;
         let value = nat_to_u256(&transfer.amount);
+        let fee = self
+            .estimate_transaction_fee(&transfer.to_address, value)
+            .await?;
         let gas_limit = get_metadata_value::<u128>(&fee.metadata, METADATA_KEY_GAS_LIMIT)?;
         let max_fee_per_gas =
             get_metadata_value::<u128>(&fee.metadata, METADATA_KEY_MAX_FEE_PER_GAS)?;
@@ -158,7 +148,7 @@ async fn ecdsa_pubkey_of(account: &Account) -> Result<Vec<u8>, BlockchainApiErro
     Ok(key.public_key)
 }
 
-async fn get_address_from_account(account: &Account) -> Result<String, BlockchainApiError> {
+pub async fn get_address_from_account(account: &Account) -> Result<String, BlockchainApiError> {
     let public_key = ecdsa_pubkey_of(&account).await?;
     let address = get_address_from_public_key(&public_key)?;
     Ok(address.to_string())
@@ -186,7 +176,10 @@ fn get_key_id() -> EcdsaKeyId {
     }
 }
 
-fn get_metadata_value<T: FromStr>(metadata: &Metadata, key: &str) -> Result<T, BlockchainApiError> {
+pub fn get_metadata_value<T: FromStr>(
+    metadata: &Metadata,
+    key: &str,
+) -> Result<T, BlockchainApiError> {
     metadata
         .get(key)
         .ok_or(BlockchainApiError::TransactionSubmitFailed {
@@ -270,7 +263,7 @@ async fn eth_get_balance(
     Ok(balance)
 }
 
-async fn eth_get_transaction_count(
+pub async fn eth_get_transaction_count(
     chain: &alloy_chains::Chain,
     address: &str,
 ) -> Result<u64, BlockchainApiError> {
@@ -338,6 +331,32 @@ async fn eth_get_gas_price(chain: &alloy_chains::Chain) -> Result<u128, Blockcha
             info: "Failed to parse gas price".to_owned(),
         })?;
     Ok(gas_price.to::<u128>())
+}
+
+pub async fn estimate_transaction_fee(
+    chain: &alloy_chains::Chain,
+    to_address: &str,
+    data: &alloy::primitives::Bytes,
+    value: U256,
+) -> BlockchainApiResult<BlockchainTransactionFee> {
+    let max_fee_per_gas: u128 = eth_get_gas_price(chain).await?;
+    let max_priority_fee_per_gas = max_fee_per_gas / 2; // pay up to 50% more (for faster confirmations)
+    let gas_limit = eth_estimate_gas(chain, to_address, data, value).await?;
+    let fee = gas_limit * max_fee_per_gas;
+    Ok(BlockchainTransactionFee {
+        fee: BigUint::from(fee),
+        metadata: Metadata::new(BTreeMap::from([
+            (METADATA_KEY_GAS_LIMIT.to_owned(), gas_limit.to_string()),
+            (
+                METADATA_KEY_MAX_FEE_PER_GAS.to_owned(),
+                max_fee_per_gas.to_string(),
+            ),
+            (
+                METADATA_KEY_MAX_PRIORITY_FEE_PER_GAS.to_owned(),
+                max_priority_fee_per_gas.to_string(),
+            ),
+        ])),
+    })
 }
 
 pub async fn request_evm_rpc(

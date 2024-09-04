@@ -49,6 +49,7 @@ alloy = { version = "0.2.0", features = [
     "k256",
     "consensus",
     "eips",
+    "contract",
 ] }
 alloy-chains = "0.1.23"
 evm-rpc-canister-types = "1.0.0"
