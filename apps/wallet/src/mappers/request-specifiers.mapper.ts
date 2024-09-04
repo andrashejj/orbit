@@ -47,8 +47,8 @@ export const mapRequestSpecifierToEnum = (specifier: RequestSpecifier): RequestS
     return RequestSpecifierEnum.RemoveUserGroup;
   }
 
-  if (variantIs(specifier, 'ChangeCanister')) {
-    return RequestSpecifierEnum.ChangeCanister;
+  if (variantIs(specifier, 'SystemUpgrade')) {
+    return RequestSpecifierEnum.SystemUpgrade;
   }
 
   if (variantIs(specifier, 'Transfer')) {
@@ -81,6 +81,10 @@ export const mapRequestSpecifierToEnum = (specifier: RequestSpecifier): RequestS
 
   if (variantIs(specifier, 'CallExternalCanister')) {
     return RequestSpecifierEnum.CallExternalCanister;
+  }
+
+  if (variantIs(specifier, 'FundExternalCanister')) {
+    return RequestSpecifierEnum.FundExternalCanister;
   }
 
   if (variantIs(specifier, 'SetDisasterRecovery')) {

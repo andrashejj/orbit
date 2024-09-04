@@ -1,7 +1,6 @@
 use crate::{
-    resource::ResourceDTO, CallExternalCanisterResourceTargetDTO,
-    ChangeExternalCanisterResourceTargetDTO, CreateExternalCanisterResourceTargetDTO, MetadataDTO,
-    PaginationInput, ResourceIdsDTO, UuidDTO,
+    resource::ResourceDTO, CallExternalCanisterResourceTargetDTO, ExternalCanisterIdDTO,
+    MetadataDTO, PaginationInput, ResourceIdsDTO, UuidDTO,
 };
 use candid::{CandidType, Deserialize};
 
@@ -15,10 +14,11 @@ pub enum RequestSpecifierDTO {
     EditAddressBookEntry(ResourceIdsDTO),
     RemoveAddressBookEntry(ResourceIdsDTO),
     Transfer(ResourceIdsDTO),
-    ChangeCanister,
+    SystemUpgrade,
     SetDisasterRecovery,
-    ChangeExternalCanister(ChangeExternalCanisterResourceTargetDTO),
-    CreateExternalCanister(CreateExternalCanisterResourceTargetDTO),
+    ChangeExternalCanister(ExternalCanisterIdDTO),
+    FundExternalCanister(ExternalCanisterIdDTO),
+    CreateExternalCanister,
     CallExternalCanister(CallExternalCanisterResourceTargetDTO),
     EditPermission(ResourceSpecifierDTO),
     AddRequestPolicy,

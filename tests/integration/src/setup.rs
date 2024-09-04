@@ -3,22 +3,39 @@ use crate::interfaces::{
 };
 use crate::utils::{controller_test_id, minter_test_id, set_controllers, NNS_ROOT_CANISTER_ID};
 use crate::{CanisterIds, TestEnv};
-use candid::{Encode, Principal};
+use candid::{CandidType, Encode, Principal};
 use control_panel_api::UploadCanisterModulesInput;
 use ic_ledger_types::{AccountIdentifier, Tokens, DEFAULT_SUBACCOUNT};
-use pocket_ic::{PocketIc, PocketIcBuilder};
+use pocket_ic::{query_candid_as, PocketIc, PocketIcBuilder};
+use serde::Serialize;
 use station_api::{AdminInitInput, SystemInit as SystemInitArg, SystemInstall as SystemInstallArg};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 static POCKET_IC_BIN: &str = "./pocket-ic";
 
 pub static WALLET_ADMIN_USER: Principal = Principal::from_slice(&[1; 29]);
 pub static CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
+
+#[derive(Serialize, CandidType, Clone, Debug, PartialEq, Eq)]
+pub enum ExchangeRateCanister {
+    /// Enables the exchange rate canister with the given canister ID.
+    Set(Principal),
+}
+
+#[derive(Serialize, CandidType, Clone, Debug, PartialEq, Eq)]
+pub struct CyclesCanisterInitPayload {
+    pub ledger_canister_id: Option<Principal>,
+    pub governance_canister_id: Option<Principal>,
+    pub minting_account_id: Option<AccountIdentifier>,
+    pub exchange_rate_canister: Option<ExchangeRateCanister>,
+    pub cycles_ledger_canister_id: Option<Principal>,
+    pub last_purged_notification: Option<u64>,
+}
 
 #[derive(Clone)]
 pub struct SetupConfig {
@@ -67,8 +84,15 @@ pub fn setup_new_env_with_config(config: SetupConfig) -> TestEnv {
     let mut env = PocketIcBuilder::new()
         .with_nns_subnet()
         .with_application_subnet()
+        .with_ii_subnet()
         .build();
-    env.set_time(SystemTime::now());
+
+    // If we set the time to SystemTime::now, and then progress pocketIC a couple ticks
+    // and then enter live mode, we would crash the deterministic state machine, as the
+    // live mode would set the time back to the current time.
+    // Therefore, if we want to use live mode, we need to start the tests with the time
+    // set to the past.
+    env.set_time(SystemTime::now() - Duration::from_secs(24 * 60 * 60));
     let controller = controller_test_id();
     let minter = minter_test_id();
     let canister_ids = install_canisters(&mut env, config, controller, minter);
@@ -114,6 +138,30 @@ fn install_canisters(
         .unwrap();
     assert_eq!(nns_index_canister_id, specified_nns_index_canister_id);
 
+    let specified_cmc_canister_id = Principal::from_text("rkp4c-7iaaa-aaaaa-aaaca-cai").unwrap();
+    let cmc_canister_id = env
+        .create_canister_with_id(Some(controller), None, specified_cmc_canister_id)
+        .unwrap();
+    assert_eq!(cmc_canister_id, specified_cmc_canister_id);
+
+    let specified_nns_exchange_rate_canister_id =
+        Principal::from_text("uf6dk-hyaaa-aaaaq-qaaaq-cai").unwrap();
+    let nns_exchange_rate_canister_id = env
+        .create_canister_with_id(
+            Some(controller),
+            None,
+            specified_nns_exchange_rate_canister_id,
+        )
+        .unwrap();
+    assert_eq!(
+        nns_exchange_rate_canister_id,
+        specified_nns_exchange_rate_canister_id
+    );
+
+    let nns_governance_canister_id = Principal::from_text("rrkah-fqaaa-aaaaa-aaaaq-cai").unwrap();
+    let nns_cycles_ledger_canister_id =
+        Principal::from_text("um5iw-rqaaa-aaaaq-qaaba-cai").unwrap();
+
     let controller_account = AccountIdentifier::new(&controller, &DEFAULT_SUBACCOUNT);
     let minting_account = AccountIdentifier::new(&minter, &DEFAULT_SUBACCOUNT);
 
@@ -144,6 +192,22 @@ fn install_canisters(
         nns_index_canister_id,
         icp_index_canister_wasm,
         Encode!(&icp_index_init_args).unwrap(),
+        Some(controller),
+    );
+
+    let cmc_canister_wasm = get_canister_wasm("cmc").to_vec();
+    let cmc_init_args: Option<CyclesCanisterInitPayload> = Some(CyclesCanisterInitPayload {
+        ledger_canister_id: Some(nns_ledger_canister_id),
+        governance_canister_id: Some(nns_governance_canister_id),
+        minting_account_id: None,
+        exchange_rate_canister: Some(ExchangeRateCanister::Set(nns_exchange_rate_canister_id)),
+        cycles_ledger_canister_id: Some(nns_cycles_ledger_canister_id),
+        last_purged_notification: Some(0),
+    });
+    env.install_canister(
+        cmc_canister_id,
+        cmc_canister_wasm,
+        Encode!(&cmc_init_args).unwrap(),
         Some(controller),
     );
 
@@ -191,8 +255,9 @@ fn install_canisters(
             name: "station-admin".to_string(),
         }],
         quorum: Some(1),
-        upgrader_wasm_module: upgrader_wasm,
+        upgrader: station_api::SystemUpgraderInput::WasmModule(upgrader_wasm),
         fallback_controller: config.fallback_controller,
+        accounts: None,
     });
     env.install_canister(
         station,
@@ -215,11 +280,20 @@ fn install_canisters(
     env.tick();
     env.tick();
 
+    // the newly created station should be healthy at this point
+    let res: (station_api::HealthStatus,) =
+        query_candid_as(env, station, WALLET_ADMIN_USER, "health_status", ())
+            .expect("Unexpected error calling Station health_status");
+    let health_status = res.0;
+
+    assert_eq!(health_status, station_api::HealthStatus::Healthy);
+
     CanisterIds {
         icp_ledger: nns_ledger_canister_id,
-        icp_index: nns_index_canister_id,
+        icp_index: cmc_canister_id,
         control_panel,
         station,
+        cycles_minting_canister: cmc_canister_id,
     }
 }
 

@@ -6,6 +6,8 @@ pub use assets::*;
 mod constants;
 pub use constants::*;
 
+pub mod cache;
+
 mod memory;
 pub use memory::*;
 
@@ -45,9 +47,15 @@ pub mod utils;
 pub mod test_utils {
     use crate::core::write_system_info;
     use crate::models::system::SystemInfo;
+    use candid::Principal;
+
+    pub const UPGRADER_CANISTER_ID: [u8; 29] = [25; 29];
 
     pub fn init_canister_system() -> SystemInfo {
-        let system = SystemInfo::default();
+        let mut system: SystemInfo = SystemInfo::default();
+        system
+            .set_upgrader_canister_id(Principal::from_slice(self::UPGRADER_CANISTER_ID.as_slice()));
+
         write_system_info(system.clone());
 
         system

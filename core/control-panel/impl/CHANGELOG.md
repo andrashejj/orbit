@@ -1,3 +1,37 @@
+## 0.0.2-alpha.5 (2024-08-26)
+
+
+### 🚀 Features
+
+- **station:** mint cycles to top up station
+
+- **station:** optimized repository lookups
+
+
+### ❤️  Thank You
+
+- Kepler Vital
+- Leon Tan
+- olaszakos
+
+## 0.0.2-alpha.4 (2024-07-04)
+
+
+### 🚀 Features
+
+- **station:** disaster recovery MVP
+
+- **upgrader:** disaster recovery flow reuses the same upgrader canister
+
+- **upgrader:** disaster recovery recreates accounts
+
+
+### ❤️  Thank You
+
+- Kepler Vital
+- Max
+- olaszakos
+
 ## 0.0.2-alpha.3 (2024-06-24)
 
 

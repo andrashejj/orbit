@@ -1,16 +1,21 @@
 use crate::setup::WALLET_ADMIN_USER;
 use candid::Principal;
+use flate2::{write::GzEncoder, Compression};
 use ic_cdk::api::management_canister::main::CanisterStatusResponse;
 use orbit_essentials::api::ApiResult;
 use orbit_essentials::cdk::api::management_canister::main::CanisterId;
 use pocket_ic::{query_candid_as, update_candid_as, CallError, PocketIc, UserError, WasmResult};
+use sha2::Digest;
 use station_api::{
-    AddUserOperationInput, ApiErrorDTO, CreateRequestInput, CreateRequestResponse, GetRequestInput,
-    GetRequestResponse, HealthStatus, MeResponse, RequestApprovalStatusDTO, RequestDTO,
-    RequestExecutionScheduleDTO, RequestOperationDTO, RequestOperationInput, RequestStatusDTO,
-    SetDisasterRecoveryOperationDTO, SetDisasterRecoveryOperationInput, SubmitRequestApprovalInput,
-    SubmitRequestApprovalResponse, SystemInfoDTO, SystemInfoResponse, UserDTO, UserStatusDTO,
+    AccountDTO, AddAccountOperationInput, AddUserOperationInput, AllowDTO, ApiErrorDTO,
+    CreateRequestInput, CreateRequestResponse, GetPermissionResponse, GetRequestInput,
+    GetRequestResponse, HealthStatus, MeResponse, QuorumPercentageDTO, RequestApprovalStatusDTO,
+    RequestDTO, RequestExecutionScheduleDTO, RequestOperationDTO, RequestOperationInput,
+    RequestPolicyRuleDTO, RequestStatusDTO, ResourceIdDTO, SetDisasterRecoveryOperationDTO,
+    SetDisasterRecoveryOperationInput, SubmitRequestApprovalInput, SubmitRequestApprovalResponse,
+    SystemInfoDTO, SystemInfoResponse, UserDTO, UserSpecifierDTO, UserStatusDTO, UuidDTO,
 };
+use std::io::Write;
 use std::time::Duration;
 use upgrader_api::{GetDisasterRecoveryStateResponse, GetLogsInput, GetLogsResponse};
 
@@ -210,11 +215,11 @@ pub fn wait_for_request_with_extra_ticks(
     request: RequestDTO,
     extra_ticks: u64,
 ) -> Result<RequestDTO, Option<RequestStatusDTO>> {
-    // wait for the request to be approved (timer's period is 5 seconds)
-    env.advance_time(Duration::from_secs(5));
+    // wait for the request to be approved
+    env.advance_time(Duration::from_secs(2));
     env.tick();
-    // wait for the request to be processing (timer's period is 5 seconds)
-    env.advance_time(Duration::from_secs(5));
+    // wait for the request to be processing
+    env.advance_time(Duration::from_secs(2));
     env.tick();
     for _ in 0..extra_ticks {
         env.tick();
@@ -297,8 +302,24 @@ pub fn add_user(
     group_ids: Vec<String>,
     station_canister_id: Principal,
 ) -> UserDTO {
+    add_user_with_name(
+        env,
+        identity.to_text().to_string(),
+        identity,
+        group_ids,
+        station_canister_id,
+    )
+}
+
+pub fn add_user_with_name(
+    env: &PocketIc,
+    user_name: String,
+    identity: Principal,
+    group_ids: Vec<String>,
+    station_canister_id: Principal,
+) -> UserDTO {
     let add_user = RequestOperationInput::AddUser(AddUserOperationInput {
-        name: identity.to_text().to_string(),
+        name: user_name,
         identities: vec![identity],
         groups: group_ids,
         status: UserStatusDTO::Active,
@@ -466,4 +487,222 @@ pub fn get_upgrader_logs(
     .expect("Failed query call to get disaster recovery logs");
 
     res.0.expect("Failed to get disaster recovery logs")
+}
+
+pub fn get_account_read_permission(
+    env: &PocketIc,
+    sender: Principal,
+    station_canister_id: Principal,
+    account_id: String,
+) -> AllowDTO {
+    let res: (ApiResult<GetPermissionResponse>,) = update_candid_as(
+        env,
+        station_canister_id,
+        sender,
+        "get_permission",
+        (station_api::GetPermissionInput {
+            resource: station_api::ResourceDTO::Account(
+                station_api::AccountResourceActionDTO::Read(ResourceIdDTO::Id(account_id)),
+            ),
+        },),
+    )
+    .expect("Failed to get account read permission");
+
+    res.0
+        .expect("Failed to get account read permission")
+        .permission
+        .allow
+}
+
+pub fn get_account_update_permission(
+    env: &PocketIc,
+    sender: Principal,
+    station_canister_id: Principal,
+    account_id: String,
+) -> AllowDTO {
+    let res: (ApiResult<GetPermissionResponse>,) = update_candid_as(
+        env,
+        station_canister_id,
+        sender,
+        "get_permission",
+        (station_api::GetPermissionInput {
+            resource: station_api::ResourceDTO::Account(
+                station_api::AccountResourceActionDTO::Update(ResourceIdDTO::Id(account_id)),
+            ),
+        },),
+    )
+    .expect("Failed to get account update permission");
+
+    res.0
+        .expect("Failed to get account update permission")
+        .permission
+        .allow
+}
+
+pub fn get_account_transfer_permission(
+    env: &PocketIc,
+    sender: Principal,
+    station_canister_id: Principal,
+    account_id: String,
+) -> AllowDTO {
+    let res: (ApiResult<GetPermissionResponse>,) = update_candid_as(
+        env,
+        station_canister_id,
+        sender,
+        "get_permission",
+        (station_api::GetPermissionInput {
+            resource: station_api::ResourceDTO::Account(
+                station_api::AccountResourceActionDTO::Transfer(ResourceIdDTO::Id(account_id)),
+            ),
+        },),
+    )
+    .expect("Failed to get account transfer permission");
+
+    res.0
+        .expect("Failed to get account transfer permission")
+        .permission
+        .allow
+}
+
+pub fn create_icp_account(env: &PocketIc, station_id: Principal, user_id: UuidDTO) -> AccountDTO {
+    // create account
+    let create_account_args = AddAccountOperationInput {
+        name: "test".to_string(),
+        blockchain: "icp".to_string(),
+        standard: "native".to_string(),
+        read_permission: AllowDTO {
+            auth_scope: station_api::AuthScopeDTO::Restricted,
+            user_groups: vec![],
+            users: vec![user_id.clone()],
+        },
+        configs_permission: AllowDTO {
+            auth_scope: station_api::AuthScopeDTO::Restricted,
+            user_groups: vec![],
+            users: vec![user_id.clone()],
+        },
+        transfer_permission: AllowDTO {
+            auth_scope: station_api::AuthScopeDTO::Restricted,
+            user_groups: vec![],
+            users: vec![user_id.clone()],
+        },
+        transfer_request_policy: Some(RequestPolicyRuleDTO::QuorumPercentage(
+            QuorumPercentageDTO {
+                approvers: UserSpecifierDTO::Id(vec![user_id.clone()]),
+                min_approved: 100,
+            },
+        )),
+        configs_request_policy: Some(RequestPolicyRuleDTO::QuorumPercentage(
+            QuorumPercentageDTO {
+                approvers: UserSpecifierDTO::Id(vec![user_id.clone()]),
+                min_approved: 100,
+            },
+        )),
+        metadata: vec![],
+    };
+    let add_account_request = CreateRequestInput {
+        operation: RequestOperationInput::AddAccount(create_account_args),
+        title: None,
+        summary: None,
+        execution_plan: Some(RequestExecutionScheduleDTO::Immediate),
+    };
+    let res: (ApiResult<CreateRequestResponse>,) = update_candid_as(
+        env,
+        station_id,
+        WALLET_ADMIN_USER,
+        "create_request",
+        (add_account_request,),
+    )
+    .unwrap();
+
+    // wait for the request to be approved (timer's period is 5 seconds)
+    env.advance_time(Duration::from_secs(5));
+    env.tick();
+
+    let account_creation_request_dto = res.0.unwrap().request;
+    match account_creation_request_dto.status {
+        RequestStatusDTO::Approved { .. } => {}
+        _ => {
+            panic!("request must be approved by now");
+        }
+    };
+
+    // wait for the request to be executed (timer's period is 5 seconds)
+    env.advance_time(Duration::from_secs(5));
+    env.tick();
+
+    // fetch the created account id from the request
+    let get_request_args = GetRequestInput {
+        request_id: account_creation_request_dto.id,
+    };
+    let res: (ApiResult<CreateRequestResponse>,) = update_candid_as(
+        env,
+        station_id,
+        WALLET_ADMIN_USER,
+        "get_request",
+        (get_request_args,),
+    )
+    .unwrap();
+    let finalized_request = res.0.unwrap().request;
+    match finalized_request.status {
+        RequestStatusDTO::Completed { .. } => {}
+        _ => {
+            panic!(
+                "request must be completed by now but instead is {:?}",
+                finalized_request.status
+            );
+        }
+    };
+
+    match finalized_request.operation {
+        RequestOperationDTO::AddAccount(add_account) => {
+            add_account.account.expect("no account in result")
+        }
+        _ => {
+            panic!("request must be AddAccount");
+        }
+    }
+}
+
+/// Compresses the given data to a gzip format.
+pub fn compress_to_gzip(data: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(data).expect("Failed to write data");
+    encoder.finish().expect("Failed to finish compression")
+}
+
+/// Creates a file in the `assets` folder with the given name and content.
+pub fn create_file(name: &str, content: &[u8]) {
+    let current_dir = std::env::current_dir().expect("Failed to get current directory");
+    let relative_path = std::path::Path::new("assets").join(name);
+    let absolute_path = current_dir.join(relative_path);
+
+    if let Some(parent_dir) = absolute_path.parent() {
+        std::fs::create_dir_all(parent_dir).expect("Failed to create directories");
+    }
+
+    std::fs::write(&absolute_path, content).expect("Failed to write file");
+}
+
+/// Reads the content of a file in the `assets` folder with the given name.
+pub fn read_file(name: &str) -> Option<Vec<u8>> {
+    let current_dir = std::env::current_dir().expect("Failed to get current directory");
+    let relative_path = std::path::Path::new("assets").join(name);
+    let absolute_path = current_dir.join(relative_path);
+
+    if !absolute_path.exists() {
+        return None;
+    }
+
+    std::fs::read(absolute_path).ok()
+}
+
+/// Converts the given data to a SHA-256 hash and returns it as a hex string.
+pub fn sha256_hex(data: &[u8]) -> String {
+    let mut hasher = sha2::Sha256::new();
+
+    hasher.update(data);
+
+    let result = hasher.finalize();
+
+    hex::encode(result)
 }

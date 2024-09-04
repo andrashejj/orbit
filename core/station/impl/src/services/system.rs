@@ -8,35 +8,65 @@ use crate::{
         read_system_info, read_system_state, write_system_info,
     },
     errors::SystemError,
+    factories::blockchains::InternetComputer,
     models::{
         system::{DisasterRecoveryCommittee, SystemInfo, SystemState},
-        ManageSystemInfoOperationInput, RequestId, RequestKey, RequestStatus,
+        CanisterInstallMode, CanisterUpgradeModeArgs, CycleObtainStrategy,
+        ManageSystemInfoOperationInput, RequestId, RequestKey, RequestOperation, RequestStatus,
+        SystemUpgradeTarget,
     },
-    repositories::{RequestRepository, REQUEST_REPOSITORY},
+    repositories::{
+        permission::PERMISSION_REPOSITORY, RequestRepository, REQUEST_REPOSITORY,
+        USER_GROUP_REPOSITORY, USER_REPOSITORY,
+    },
+    services::{
+        change_canister::{ChangeCanisterService, CHANGE_CANISTER_SERVICE},
+        disaster_recovery::DISASTER_RECOVERY_SERVICE,
+        request::{RequestService, REQUEST_SERVICE},
+    },
+    SYSTEM_VERSION,
 };
 use candid::Principal;
+use canfund::{
+    api::{cmc::IcCyclesMintingCanister, ledger::IcLedgerCanister},
+    manager::options::ObtainCyclesOptions,
+    operations::obtain::MintCycles,
+};
+use ic_ledger_types::{Subaccount, MAINNET_CYCLES_MINTING_CANISTER_ID, MAINNET_LEDGER_CANISTER_ID};
 use lazy_static::lazy_static;
 use orbit_essentials::api::ServiceResult;
 use orbit_essentials::repository::Repository;
 use station_api::{HealthStatus, SystemInit, SystemInstall, SystemUpgrade};
 use std::sync::Arc;
+use upgrader_api::UpgradeParams;
 use uuid::Uuid;
 
-use super::DISASTER_RECOVERY_SERVICE;
-
 lazy_static! {
-    pub static ref SYSTEM_SERVICE: Arc<SystemService> =
-        Arc::new(SystemService::new(Arc::clone(&REQUEST_REPOSITORY)));
+    pub static ref SYSTEM_SERVICE: Arc<SystemService> = Arc::new(SystemService::new(
+        Arc::clone(&REQUEST_REPOSITORY),
+        Arc::clone(&REQUEST_SERVICE),
+        Arc::clone(&CHANGE_CANISTER_SERVICE)
+    ));
 }
 
 #[derive(Default, Debug)]
 pub struct SystemService {
     request_repository: Arc<RequestRepository>,
+    request_service: Arc<RequestService>,
+    change_canister_service: Arc<ChangeCanisterService>,
 }
 
 impl SystemService {
-    pub fn new(request_repository: Arc<RequestRepository>) -> Self {
-        Self { request_repository }
+    pub fn new(
+        request_repository: Arc<RequestRepository>,
+        request_service: Arc<RequestService>,
+        change_canister_service: Arc<ChangeCanisterService>,
+    ) -> Self {
+        Self {
+            request_repository,
+            request_service,
+            change_canister_service,
+        }
     }
 
     /// Gets the system information of the current canister.
@@ -88,6 +118,10 @@ impl SystemService {
             system_info.set_name(name.clone());
         }
 
+        if let Some(strategy) = input.cycle_obtain_strategy {
+            system_info.set_cycle_obtain_strategy(strategy);
+        }
+
         write_system_info(system_info);
     }
 
@@ -99,6 +133,75 @@ impl SystemService {
         // syncs the committee and account to the upgrader
         crate::core::ic_cdk::spawn(async {
             DISASTER_RECOVERY_SERVICE.sync_all().await;
+        });
+    }
+
+    /// Execute an upgrade of the station by requesting the upgrader to perform it on our behalf.
+    pub async fn upgrade_station(&self, module: &[u8], arg: &[u8]) -> ServiceResult<()> {
+        let upgrader_canister_id = self.get_upgrader_canister_id();
+
+        ic_cdk::call(
+            upgrader_canister_id,
+            "trigger_upgrade",
+            (UpgradeParams {
+                module: module.to_owned(),
+                arg: arg.to_owned(),
+            },),
+        )
+        .await
+        .map_err(|(_, err)| SystemError::UpgradeFailed {
+            reason: err.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    /// Execute an upgrade of the upgrader canister.
+    pub async fn upgrade_upgrader(&self, module: &[u8], arg: Option<Vec<u8>>) -> ServiceResult<()> {
+        let upgrader_canister_id = self.get_upgrader_canister_id();
+        self.change_canister_service
+            .install_canister(
+                upgrader_canister_id,
+                CanisterInstallMode::Upgrade(CanisterUpgradeModeArgs {}),
+                module,
+                arg,
+            )
+            .await
+            .map_err(|e| SystemError::UpgradeFailed {
+                reason: e.to_string(),
+            })?;
+
+        Ok(())
+    }
+
+    pub fn get_obtain_cycle_config(
+        &self,
+        strategy: &CycleObtainStrategy,
+    ) -> Option<ObtainCyclesOptions> {
+        match strategy {
+            CycleObtainStrategy::Disabled => None,
+            CycleObtainStrategy::MintFromNativeToken { account_id } => Some(ObtainCyclesOptions {
+                obtain_cycles: Arc::new(MintCycles {
+                    ledger: Arc::new(IcLedgerCanister::new(MAINNET_LEDGER_CANISTER_ID)),
+                    cmc: Arc::new(IcCyclesMintingCanister::new(
+                        MAINNET_CYCLES_MINTING_CANISTER_ID,
+                    )),
+                    from_subaccount: Subaccount(
+                        InternetComputer::subaccount_from_station_account_id(account_id),
+                    ),
+                }),
+                top_up_self: true,
+            }),
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_fund_manager_obtain_cycles(&self, strategy: &CycleObtainStrategy) {
+        install_canister_handlers::FUND_MANAGER.with(|fund_manager| {
+            let mut fund_manager = fund_manager.borrow_mut();
+            let options = fund_manager.get_options();
+            let options =
+                options.with_obtain_cycles_options(self.get_obtain_cycle_config(strategy));
+            fund_manager.with_options(options);
         });
     }
 
@@ -134,6 +237,7 @@ impl SystemService {
 
             install_canister_handlers::monitor_upgrader_cycles(
                 *system_info.get_upgrader_canister_id(),
+                *system_info.get_cycle_obtain_strategy(),
             );
 
             // initializes the job timers after the canister is fully initialized
@@ -153,17 +257,15 @@ impl SystemService {
             print("Adding initial canister configurations");
             install_canister_handlers::init_post_process(&init).await?;
 
-            print("Deploying upgrader canister");
+            print("Init upgrader canister");
             let canister_id = self_canister_id();
             let mut upgrader_controllers = vec![canister_id];
             if let Some(fallback_controller) = init.fallback_controller {
                 upgrader_controllers.push(fallback_controller);
             }
-            let upgrader_canister_id = install_canister_handlers::deploy_upgrader(
-                init.upgrader_wasm_module,
-                upgrader_controllers,
-            )
-            .await?;
+            let upgrader_canister_id =
+                install_canister_handlers::init_upgrader(init.upgrader, upgrader_controllers)
+                    .await?;
             system_info.set_upgrader_canister_id(upgrader_canister_id);
 
             // sets the upgrader as a controller of the station canister
@@ -174,18 +276,24 @@ impl SystemService {
             }
             install_canister_handlers::set_controllers(station_controllers).await?;
 
+            // calculates the initial quorum based on the number of admins and the provided quorum
+            let admin_count = init.admins.len() as u16;
+            let quorum = calc_initial_quorum(admin_count, init.quorum);
+
+            // if provided, creates the initial accounts
+            if let Some(accounts) = init.accounts {
+                print("Adding initial accounts");
+                install_canister_handlers::set_initial_accounts(accounts, quorum).await?;
+            }
+
             if SYSTEM_SERVICE.is_healthy() {
                 print("canister reports healthy already before its initialization has finished!");
             }
 
             install_canister_post_process_finish(system_info);
 
-            let admin_count = u16::try_from(init.admins.len()).unwrap_or(u16::MAX);
             SystemService::set_disaster_recovery_committee(Some(DisasterRecoveryCommittee {
-                quorum: init
-                    .quorum
-                    .unwrap_or(admin_count / 2 + 1)
-                    .clamp(1, admin_count),
+                quorum,
                 user_group_id: *crate::models::ADMIN_GROUP_ID,
             }));
 
@@ -224,6 +332,15 @@ impl SystemService {
         };
     }
 
+    /// Initializes the cache of the canister data.
+    ///
+    /// Must only be called within a canister init or post_upgrade call.
+    fn init_cache(&self) {
+        USER_GROUP_REPOSITORY.build_cache();
+        USER_REPOSITORY.build_cache();
+        PERMISSION_REPOSITORY.build_cache();
+    }
+
     /// Initializes the canister with the given owners and settings.
     ///
     /// Must only be called within a canister init call.
@@ -234,6 +351,12 @@ impl SystemService {
             return Err(SystemError::NoAdminsSpecified)?;
         }
 
+        if input.admins.len() > u16::MAX as usize {
+            return Err(SystemError::TooManyAdminsSpecified {
+                max: u16::MAX as usize,
+            })?;
+        }
+
         // adds the default admin group
         init_canister_sync_handlers::add_admin_group();
 
@@ -242,6 +365,9 @@ impl SystemService {
 
         // sets the name of the canister
         system_info.set_name(input.name.clone());
+
+        // initializes the cache of the canister data, must happen during the same call as the init
+        self.init_cache();
 
         // Handles the post init process in a one-off timer to allow for inter canister calls,
         // this adds the default canister configurations, deploys the station upgrader and makes sure
@@ -255,6 +381,9 @@ impl SystemService {
     ///
     /// Must only be called within a canister post_upgrade call.
     pub async fn upgrade_canister(&self, input: Option<SystemUpgrade>) -> ServiceResult<()> {
+        // initializes the cache of the canister data, must happen during the same call as the upgrade
+        self.init_cache();
+
         // recompute all metrics to make sure they are up to date, only gauges are recomputed
         // since they are the only ones that can change over time.
         recompute_metrics();
@@ -265,6 +394,9 @@ impl SystemService {
             None => SystemUpgrade { name: None },
         };
 
+        // Version is set to the current global system version, needs to happen after the migrations.
+        system_info.set_version(SYSTEM_VERSION.to_string());
+
         // verifies that the upgrade request exists and marks it as completed
         if let Some(request_id) = system_info.get_change_canister_request() {
             match self.request_repository.get(&RequestKey { id: *request_id }) {
@@ -274,6 +406,11 @@ impl SystemService {
                         completed_at: completed_time,
                     };
                     request.last_modification_timestamp = completed_time;
+
+                    if let RequestOperation::SystemUpgrade(operation) = &mut request.operation {
+                        // Clears the module when the operation is completed, this helps to reduce memory usage.
+                        operation.input.module = Vec::new();
+                    }
 
                     self.request_repository.insert(request.to_key(), request);
                 }
@@ -302,6 +439,47 @@ impl SystemService {
         // Handles the post upgrade process in a one-off timer to allow for inter canister calls,
         // this upgrades the upgrader canister if a new upgrader module is provided.
         self.install_canister_post_process(system_info, SystemInstall::Upgrade(input));
+
+        Ok(())
+    }
+
+    pub async fn notify_failed_station_upgrade(&self, reason: String) -> ServiceResult<()> {
+        let system_info = self.get_system_info();
+        let request_id = system_info
+            .get_change_canister_request()
+            .ok_or(SystemError::NoStationUpgradeProcessing)?;
+
+        let request = self.request_service.get_request(request_id)?;
+
+        // Check that the request is indeed a station upgrade request.
+        match request.operation {
+            RequestOperation::SystemUpgrade(ref system_upgrade) => {
+                match system_upgrade.input.target {
+                    SystemUpgradeTarget::UpgradeStation => (),
+                    _ => panic!(
+                        "Expected upgrade request for station, got upgrade request for {:?}",
+                        system_upgrade.input.target
+                    ),
+                }
+            }
+            _ => panic!(
+                "Expected station upgrade request, got {:?}",
+                request.operation
+            ),
+        };
+
+        // Check that the request is still processing before making it failed.
+        match request.status {
+            RequestStatus::Processing { .. } => (),
+            _ => panic!(
+                "Expected the station upgrade request to be Processing, but it is {:?}",
+                request.status
+            ),
+        };
+
+        self.request_service
+            .fail_request(request, reason, next_time())
+            .await;
 
         Ok(())
     }
@@ -353,22 +531,41 @@ mod init_canister_sync_handlers {
     }
 }
 
+// Calculates the initial quorum based on the number of admins and the provided quorum, if not provided
+// the quorum is set to the majority of the admins.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn calc_initial_quorum(admin_count: u16, quorum: Option<u16>) -> u16 {
+    quorum.unwrap_or(admin_count / 2 + 1).clamp(1, admin_count)
+}
+
 #[cfg(target_arch = "wasm32")]
 mod install_canister_handlers {
     use crate::core::ic_cdk::api::{id as self_canister_id, print};
     use crate::core::init::{default_policies, DEFAULT_PERMISSIONS};
     use crate::core::INITIAL_UPGRADER_CYCLES;
-    use crate::models::{AddRequestPolicyOperationInput, EditPermissionOperationInput};
+    use crate::mappers::blockchain::BlockchainMapper;
+    use crate::mappers::HelperMapper;
+    use crate::models::permission::Allow;
+    use crate::models::request_specifier::UserSpecifier;
+    use crate::models::{
+        AddAccountOperationInput, AddRequestPolicyOperationInput, CycleObtainStrategy,
+        EditPermissionOperationInput, RequestPolicyRule, ADMIN_GROUP_ID,
+    };
     use crate::services::permission::PERMISSION_SERVICE;
+    use crate::services::ACCOUNT_SERVICE;
     use crate::services::REQUEST_POLICY_SERVICE;
     use candid::{Encode, Principal};
-    use canfund::fetch::cycles::FetchCyclesBalanceFromCanisterStatus;
     use canfund::manager::options::{EstimatedRuntime, FundManagerOptions, FundStrategy};
+    use canfund::manager::RegisterOpts;
     use canfund::FundManager;
     use ic_cdk::api::management_canister::main::{self as mgmt};
-    use station_api::SystemInit;
+    use ic_cdk::id;
+
+    use orbit_essentials::types::UUID;
+    use station_api::{InitAccountInput, SystemInit};
     use std::cell::RefCell;
-    use std::sync::Arc;
+
+    use super::SYSTEM_SERVICE;
 
     thread_local! {
         pub static FUND_MANAGER: RefCell<FundManager> = RefCell::new(FundManager::new());
@@ -376,12 +573,7 @@ mod install_canister_handlers {
 
     /// Registers the default configurations for the canister.
     pub async fn init_post_process(init: &SystemInit) -> Result<(), String> {
-        let admin_count = u16::try_from(init.admins.len()).unwrap_or(u16::MAX);
-
-        let admin_quorum = init
-            .quorum
-            .unwrap_or(admin_count / 2 + 1)
-            .clamp(1, admin_count);
+        let admin_quorum = super::calc_initial_quorum(init.admins.len() as u16, init.quorum);
 
         let policies_to_create = default_policies(admin_quorum);
 
@@ -392,7 +584,6 @@ mod install_canister_handlers {
                     specifier: policy.0.to_owned(),
                     rule: policy.1.to_owned(),
                 })
-                .await
                 .map_err(|e| format!("Failed to add default request policy: {:?}", e))?;
         }
 
@@ -406,15 +597,85 @@ mod install_canister_handlers {
                     users: Some(allow.users),
                     resource: policy.1.to_owned(),
                 })
-                .await
                 .map_err(|e| format!("Failed to add default permission: {:?}", e))?;
         }
 
         Ok(())
     }
 
+    // Registers the initial accounts of the canister during the canister initialization.
+    pub async fn set_initial_accounts(
+        accounts: Vec<InitAccountInput>,
+        quorum: u16,
+    ) -> Result<(), String> {
+        let add_accounts = accounts
+            .into_iter()
+            .map(|account| {
+                let input = AddAccountOperationInput {
+                    name: account.name,
+                    blockchain: BlockchainMapper::to_blockchain(account.blockchain.clone())
+                        .expect("Invalid blockchain"),
+                    standard: BlockchainMapper::to_blockchain_standard(account.standard)
+                        .expect("Invalid blockchain standard"),
+                    metadata: account.metadata.into(),
+                    transfer_request_policy: Some(RequestPolicyRule::Quorum(
+                        UserSpecifier::Group(vec![*ADMIN_GROUP_ID]),
+                        quorum,
+                    )),
+                    configs_request_policy: Some(RequestPolicyRule::Quorum(
+                        UserSpecifier::Group(vec![*ADMIN_GROUP_ID]),
+                        quorum,
+                    )),
+                    read_permission: Allow::user_groups(vec![*ADMIN_GROUP_ID]),
+                    configs_permission: Allow::user_groups(vec![*ADMIN_GROUP_ID]),
+                    transfer_permission: Allow::user_groups(vec![*ADMIN_GROUP_ID]),
+                };
+
+                (
+                    input,
+                    account
+                        .id
+                        .map(|id| *HelperMapper::to_uuid(id).expect("Invalid UUID").as_bytes()),
+                )
+            })
+            .collect::<Vec<(AddAccountOperationInput, Option<UUID>)>>();
+
+        for (new_account, with_account_id) in add_accounts {
+            ACCOUNT_SERVICE
+                .create_account(new_account, with_account_id)
+                .await
+                .map_err(|e| format!("Failed to add account: {:?}", e))?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn init_upgrader(
+        input: station_api::SystemUpgraderInput,
+        controllers: Vec<Principal>,
+    ) -> Result<Principal, String> {
+        match input {
+            station_api::SystemUpgraderInput::Id(upgrader_id) => {
+                mgmt::update_settings(mgmt::UpdateSettingsArgument {
+                    canister_id: upgrader_id,
+                    settings: mgmt::CanisterSettings {
+                        controllers: Some(controllers),
+                        ..Default::default()
+                    },
+                })
+                .await
+                .map_err(|e| format!("Failed to set upgrader controller: {:?}", e))?;
+
+                Ok(upgrader_id)
+            }
+            station_api::SystemUpgraderInput::WasmModule(upgrader_wasm_module) => {
+                deploy_upgrader(upgrader_wasm_module, controllers).await
+            }
+        }
+    }
+
     /// Deploys the station upgrader canister and sets the station as the controller of the upgrader.
-    pub async fn deploy_upgrader(
+    async fn deploy_upgrader(
         upgrader_wasm_module: Vec<u8>,
         controllers: Vec<Principal>,
     ) -> Result<Principal, String> {
@@ -459,29 +720,38 @@ mod install_canister_handlers {
     }
 
     /// Starts the fund manager service setting it up to monitor the upgrader canister cycles and top it up if needed.
-    pub fn monitor_upgrader_cycles(upgrader_id: Principal) {
+    pub fn monitor_upgrader_cycles(
+        upgrader_id: Principal,
+        cycle_obtain_strategy: CycleObtainStrategy,
+    ) {
         print(format!(
-            "Starting fund manager to monitor upgrader canister {} cycles",
+            "Starting fund manager to monitor self {} and upgrader canister {} cycles",
+            id(),
             upgrader_id.to_text()
         ));
 
         FUND_MANAGER.with(|fund_manager| {
             let mut fund_manager = fund_manager.borrow_mut();
 
-            fund_manager.with_options(
-                FundManagerOptions::new()
-                    .with_interval_secs(24 * 60 * 60) // daily
-                    .with_strategy(FundStrategy::BelowEstimatedRuntime(
-                        EstimatedRuntime::new()
-                            .with_min_runtime_secs(14 * 24 * 60 * 60) // 14 days
-                            .with_fund_runtime_secs(30 * 24 * 60 * 60) // 30 days
-                            .with_max_runtime_cycles_fund(1_000_000_000_000)
-                            .with_fallback_min_cycles(125_000_000_000)
-                            .with_fallback_fund_cycles(250_000_000_000),
-                    )),
+            let mut fund_manager_options = FundManagerOptions::new()
+                .with_interval_secs(24 * 60 * 60) // daily
+                .with_strategy(FundStrategy::BelowEstimatedRuntime(
+                    EstimatedRuntime::new()
+                        .with_min_runtime_secs(14 * 24 * 60 * 60) // 14 days
+                        .with_fund_runtime_secs(30 * 24 * 60 * 60) // 30 days
+                        .with_max_runtime_cycles_fund(1_000_000_000_000)
+                        .with_fallback_min_cycles(125_000_000_000)
+                        .with_fallback_fund_cycles(250_000_000_000),
+                ));
+
+            fund_manager_options = fund_manager_options.with_obtain_cycles_options(
+                SYSTEM_SERVICE.get_obtain_cycle_config(&cycle_obtain_strategy),
             );
-            fund_manager.with_cycles_fetcher(Arc::new(FetchCyclesBalanceFromCanisterStatus));
-            fund_manager.register(upgrader_id);
+
+            fund_manager.with_options(fund_manager_options);
+
+            // monitor the upgrader canister
+            fund_manager.register(upgrader_id, RegisterOpts::default());
 
             fund_manager.start();
         });
@@ -505,8 +775,9 @@ mod tests {
                     identity: Principal::from_slice(&[1; 29]),
                 }],
                 quorum: Some(1),
-                upgrader_wasm_module: vec![],
+                upgrader: station_api::SystemUpgraderInput::WasmModule(vec![]),
                 fallback_controller: None,
+                accounts: None,
             })
             .await;
 
@@ -537,5 +808,37 @@ mod tests {
         let system_info = read_system_info();
 
         assert!(system_info.get_change_canister_request().is_none());
+    }
+
+    #[test]
+    fn test_initial_quorum_is_majority() {
+        assert_eq!(calc_initial_quorum(1, None), 1);
+        assert_eq!(calc_initial_quorum(2, None), 2);
+        assert_eq!(calc_initial_quorum(3, None), 2);
+        assert_eq!(calc_initial_quorum(4, None), 3);
+        assert_eq!(calc_initial_quorum(5, None), 3);
+        assert_eq!(calc_initial_quorum(6, None), 4);
+        assert_eq!(calc_initial_quorum(7, None), 4);
+        assert_eq!(calc_initial_quorum(8, None), 5);
+        assert_eq!(calc_initial_quorum(9, None), 5);
+        assert_eq!(calc_initial_quorum(10, None), 6);
+        assert_eq!(calc_initial_quorum(11, None), 6);
+        assert_eq!(calc_initial_quorum(12, None), 7);
+        assert_eq!(calc_initial_quorum(13, None), 7);
+        assert_eq!(calc_initial_quorum(14, None), 8);
+        assert_eq!(calc_initial_quorum(15, None), 8);
+        assert_eq!(calc_initial_quorum(16, None), 9);
+    }
+
+    #[test]
+    fn test_initial_quorum_is_custom() {
+        // smaller than the number of admins
+        assert_eq!(calc_initial_quorum(4, Some(1)), 1);
+        // half of the number of admins
+        assert_eq!(calc_initial_quorum(4, Some(2)), 2);
+        // equal to the number of admins
+        assert_eq!(calc_initial_quorum(4, Some(4)), 4);
+        // larger than the number of admins
+        assert_eq!(calc_initial_quorum(4, Some(5)), 4);
     }
 }
