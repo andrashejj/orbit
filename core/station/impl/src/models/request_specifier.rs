@@ -5,10 +5,7 @@ use crate::core::validation::{
     EnsureResourceIdExists, EnsureUser, EnsureUserGroup,
 };
 use crate::errors::ValidationError;
-use crate::models::resource::{
-    CallExternalCanisterResourceTarget, ChangeExternalCanisterResourceTarget,
-    CreateExternalCanisterResourceTarget,
-};
+use crate::models::resource::{CallExternalCanisterResourceTarget, ExternalCanisterId};
 use crate::models::user::User;
 use crate::repositories::ADDRESS_BOOK_REPOSITORY;
 use crate::services::ACCOUNT_SERVICE;
@@ -53,8 +50,9 @@ pub enum ResourceSpecifier {
     Resource(Resource),
 }
 
-#[storable]
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[storable(skip_deserialize = true)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, strum::VariantNames)]
+#[strum(serialize_all = "PascalCase")]
 pub enum RequestSpecifier {
     AddAccount,
     AddUser,
@@ -64,11 +62,11 @@ pub enum RequestSpecifier {
     EditAddressBookEntry(ResourceIds),
     RemoveAddressBookEntry(ResourceIds),
     Transfer(ResourceIds),
-    ChangeCanister,
     SetDisasterRecovery,
-    ChangeExternalCanister(ChangeExternalCanisterResourceTarget),
-    CreateExternalCanister(CreateExternalCanisterResourceTarget),
+    CreateExternalCanister,
+    ChangeExternalCanister(ExternalCanisterId),
     CallExternalCanister(CallExternalCanisterResourceTarget),
+    FundExternalCanister(ExternalCanisterId),
     EditPermission(ResourceSpecifier),
     AddRequestPolicy,
     EditRequestPolicy(ResourceIds),
@@ -77,6 +75,7 @@ pub enum RequestSpecifier {
     EditUserGroup(ResourceIds),
     RemoveUserGroup(ResourceIds),
     ManageSystemInfo,
+    SystemUpgrade,
 }
 
 impl ModelValidator<ValidationError> for RequestSpecifier {
@@ -85,9 +84,10 @@ impl ModelValidator<ValidationError> for RequestSpecifier {
             RequestSpecifier::AddAccount
             | RequestSpecifier::AddUser
             | RequestSpecifier::AddAddressBookEntry
-            | RequestSpecifier::ChangeCanister
+            | RequestSpecifier::SystemUpgrade
             | RequestSpecifier::ChangeExternalCanister(_)
-            | RequestSpecifier::CreateExternalCanister(_)
+            | RequestSpecifier::FundExternalCanister(_)
+            | RequestSpecifier::CreateExternalCanister
             | RequestSpecifier::AddRequestPolicy
             | RequestSpecifier::ManageSystemInfo
             | RequestSpecifier::SetDisasterRecovery
@@ -140,14 +140,15 @@ impl From<&RequestSpecifier> for RequestOperationType {
             }
             RequestSpecifier::Transfer(_) => RequestOperationType::Transfer,
             RequestSpecifier::EditPermission(_) => RequestOperationType::EditPermission,
-            RequestSpecifier::ChangeCanister => RequestOperationType::ChangeCanister,
+            RequestSpecifier::SystemUpgrade => RequestOperationType::SystemUpgrade,
             RequestSpecifier::ChangeExternalCanister(_) => {
                 RequestOperationType::ChangeExternalCanister
             }
-            RequestSpecifier::CreateExternalCanister(_) => {
+            RequestSpecifier::CreateExternalCanister => {
                 RequestOperationType::CreateExternalCanister
             }
             RequestSpecifier::CallExternalCanister(_) => RequestOperationType::CallExternalCanister,
+            RequestSpecifier::FundExternalCanister(_) => RequestOperationType::FundExternalCanister,
             RequestSpecifier::AddRequestPolicy => RequestOperationType::AddRequestPolicy,
             RequestSpecifier::EditRequestPolicy(_) => RequestOperationType::EditRequestPolicy,
             RequestSpecifier::RemoveRequestPolicy(_) => RequestOperationType::RemoveRequestPolicy,
@@ -233,11 +234,9 @@ impl Match<RequestHasMetadata> for AddressBookMetadataMatcher {
         Ok(match request.operation.to_owned() {
             RequestOperation::Transfer(transfer) => {
                 if let Ok(account) = ACCOUNT_SERVICE.get_account(&transfer.input.from_account_id) {
-                    if let Some(address_book_entry) = ADDRESS_BOOK_REPOSITORY.find_by_address(
-                        account.blockchain,
-                        account.standard,
-                        transfer.input.to,
-                    ) {
+                    if let Some(address_book_entry) = ADDRESS_BOOK_REPOSITORY
+                        .find_by_address(account.blockchain, transfer.input.to)
+                    {
                         address_book_entry.metadata.contains(&metadata)
                     } else {
                         false
@@ -253,7 +252,6 @@ impl Match<RequestHasMetadata> for AddressBookMetadataMatcher {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{
         core::{validation::disable_mock_resource_validation, write_system_info},
         models::{
@@ -263,9 +261,8 @@ mod tests {
             },
             request_test_utils::mock_request,
             resource::{
-                CallExternalCanisterResourceTarget, ChangeExternalCanisterResourceTarget,
-                CreateExternalCanisterResourceTarget, ExecutionMethodResourceTarget, ResourceIds,
-                ValidationMethodResourceTarget,
+                CallExternalCanisterResourceTarget, ExecutionMethodResourceTarget,
+                ExternalCanisterId, ResourceIds, ValidationMethodResourceTarget,
             },
             system::SystemInfo,
             CanisterMethod, RequestKey,
@@ -357,18 +354,24 @@ mod tests {
         RequestSpecifier::AddAddressBookEntry
             .validate()
             .expect("AddAddressBookEntry should be valid");
-        RequestSpecifier::ChangeCanister
+        RequestSpecifier::SystemUpgrade
             .validate()
-            .expect("ChangeCanister should be valid");
-        RequestSpecifier::ChangeExternalCanister(ChangeExternalCanisterResourceTarget::Any)
+            .expect("SystemUpgrade should be valid");
+        RequestSpecifier::ChangeExternalCanister(ExternalCanisterId::Any)
             .validate()
             .expect("ChangeExternalCanister should be valid");
-        RequestSpecifier::ChangeExternalCanister(ChangeExternalCanisterResourceTarget::Canister(
-            Principal::management_canister(),
+        RequestSpecifier::ChangeExternalCanister(ExternalCanisterId::Canister(
+            external_canister_id,
         ))
         .validate()
         .expect("ChangeExternalCanister should be valid");
-        RequestSpecifier::CreateExternalCanister(CreateExternalCanisterResourceTarget::Any)
+        RequestSpecifier::FundExternalCanister(ExternalCanisterId::Any)
+            .validate()
+            .expect("FundExternalCanister should be valid");
+        RequestSpecifier::FundExternalCanister(ExternalCanisterId::Canister(external_canister_id))
+            .validate()
+            .expect("FundExternalCanister should be valid");
+        RequestSpecifier::CreateExternalCanister
             .validate()
             .expect("CreateExternalCanister should be valid");
         RequestSpecifier::CallExternalCanister(CallExternalCanisterResourceTarget {

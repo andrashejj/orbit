@@ -19,6 +19,9 @@ export default {
     station_info_card_edit_hint: 'Edit your own preferences and settings for this wallet.',
     station_info_card_remove_btn: 'Remove wallet',
     station_info_card_remove_btn_confirm: 'Are you sure you want to remove this wallet?',
+    disaster_recovery_card_title: 'Disaster Recovery',
+    disaster_recovery_not_configured: 'Disaster recovery not configured.',
+    disaster_recovery_dialog_title: 'Configure Disaster Recovery',
     manage_associated_station: 'Manage associated wallet',
     manage_associated_station_hint: 'These settings only apply to your user and not to the wallet.',
     user_activities_card_title: 'User Activities',
@@ -39,7 +42,7 @@ export default {
       'Use with caution. The identity will be able to login as the user and perform actions on their behalf.',
     export_csv: 'Export CSV',
     params_parse_error: 'Failed to parse parameters, please try again.',
-    submit_upgrade: 'Submit upgrade',
+    software_update: 'Software Update',
     canister_upgrade_target: 'Upgrade Target',
     canister_wasm_module: 'Canister Wasm Module',
     canister_upgrade_args_input: 'Upgrade arguments (optional)',
@@ -78,6 +81,19 @@ export default {
     account_dialog_request_policy_transfer_hint:
       'The policy that needs to be approved to transfer funds.',
     request_policy_rule_builder_no_rule: 'No rule specified.',
+    advanced_software_update_warning:
+      'Use with caution. This is an advanced feature for updating the wallet.',
+    check_updates_btn: 'Check for updates',
+    update_recommended_latest:
+      "It's recommended to keep your software up to date to ensure the best experience.",
+    update_already_latest_version: 'You are already in the latest version.',
+    checking_for_updates: 'Checking for updates ...',
+    update_available: 'There is a new version available.',
+    update_automated_comment: {
+      summary: 'The {name} will be updated to version {version}.',
+      verify_instructions:
+        'To verify the update, open the terminal and follow the instructions bellow:',
+    },
   },
   alpha_warning: {
     version: 'This is an alpha version.',
@@ -111,7 +127,7 @@ export default {
       },
     },
   },
-  change_canister: {
+  system_upgrade: {
     targets: {
       upgradestation: 'Wallet',
       upgradeupgrader: 'Upgrader',
@@ -154,6 +170,7 @@ export default {
       system: 'System',
       transfers: 'Transfers',
       users: 'Users',
+      external_canisters: 'Canisters',
     },
     headers: {
       id: 'ID',
@@ -179,9 +196,11 @@ export default {
       change_target: 'Change Target',
       wasm_checksum: 'Wasm Checksum',
       from_account: 'From Account',
+      from_account_address: 'From Address',
       to: 'To Address',
       amount: 'Amount',
       fee: 'Fee',
+      comment: 'Comment',
     },
     download: {
       user_group: 'User Groups',
@@ -190,7 +209,7 @@ export default {
       permission: 'Access Policies',
       request_policy: 'Request Policies',
       address_book_entry: 'Address Book',
-      change_canister: 'Upgrades',
+      system_upgrade: 'Upgrades',
       transfer: 'Transfers',
       external_canister: 'External Canisters',
       system_info: 'System Info',
@@ -228,9 +247,9 @@ export default {
         title: 'Remove address book entry',
         request_title: 'Remove address book entry request',
       },
-      changecanister: {
-        title: 'Change canister',
-        request_title: 'Change canister request',
+      systemupgrade: {
+        title: 'System upgrade',
+        request_title: 'System upgrade request',
       },
       editpermission: {
         title: 'Edit permission',
@@ -384,6 +403,13 @@ export default {
     add_station_list_item: 'Add wallet',
   },
   terms: {
+    active: 'Active',
+    archived: 'Archived',
+    canisters: 'Canisters',
+    labels: 'Labels',
+    canister: 'Canister',
+    change: 'Change',
+    quorum: 'Quorum',
     deposits: 'Deposits',
     station: 'Wallet',
     all_done: 'All done',
@@ -397,10 +423,13 @@ export default {
     summary: 'Summary',
     overriden: 'Overriden',
     metadata: 'Metadata',
+    automated: 'Automated',
+    advanced: 'Advanced',
     wasm: 'Wasm',
     arg: 'Arg',
     access: 'Access',
     previous: 'Previous',
+    comment: 'Comment',
     comment_optional: 'Comment (optional)',
     next: 'Next',
     back: 'Back',
@@ -433,6 +462,7 @@ export default {
     requests: 'Requests',
     cancel: 'Cancel',
     checksum: 'Checksum',
+    module_checksum: 'Module Checksum',
     rejected: 'Rejected',
     edit: 'Edit',
     destination_address: 'Destination address',
@@ -488,6 +518,7 @@ export default {
     value: 'Value',
     close: 'Close',
     general: 'General',
+    update: 'Update',
     add: 'Add',
     remove: 'Remove',
     failed: 'Failed',
@@ -513,12 +544,14 @@ export default {
     unconfirmed: 'Unconfirmed',
     main: 'Main',
     user_group: 'User Group',
+    user_group_id: 'User Group ID',
     user_groups: 'User Groups',
     all: 'All',
     subset: 'Subset',
     skip: 'Skip',
     version: 'Version',
     continue: 'Continue',
+    cycle_obtain_strategy: 'Wallet top-up method',
   },
   forms: {
     create: 'Create',
@@ -555,6 +588,7 @@ export default {
     transfer_requests: 'Transfer Requests',
     permissions: 'Permissions',
     request_policies: 'Request Policies',
+    external_canisters: 'Canisters',
   },
   pages: {
     accounts: {
@@ -562,13 +596,16 @@ export default {
       btn_new_transfer: 'New transfer',
       btn_upload_csv: 'Upload CSV',
       error_fetching_account: 'Error fetching account, please try again.',
+      cycle_obtain_account: 'This account is used to top up the Orbit station cycle balance.',
     },
     account: {
       not_found: 'Account not found',
       not_found_description: 'The account you are looking for does not exist.',
       csv_transfer_subtitle: 'Upload a CSV file to create multiple transfers at once.',
-      csv_transfer_file_format_hint: 'The CSV file must contain the column "{to}" and "{amount}".',
+      csv_transfer_file_format_hint:
+        'The CSV file must contain the column "{to}" and "{amount}", and optionally "{comment}".',
       csv_transfer_file_column_to: 'to',
+      csv_transfer_file_column_comment: 'comment',
       csv_transfer_file_column_amount: 'amount',
       csv_transfer_file_rows_title: 'Transfers to be created: {count}',
       csv_ignored_transfers_hint: 'Transfers with errors will be ignored.',
@@ -587,6 +624,9 @@ export default {
     },
     administration: {
       title: 'Administration',
+      cycle_obtain_strategy_disabled:
+        'WARNING: Station cycle balance top-up disabled. Your station may run out of cycles.',
+      cycle_obtain_strategy_mint_from_native_token: 'Mint from ICP account',
     },
     users: {
       title: 'Users',
@@ -595,6 +635,13 @@ export default {
       btn_edit_title: 'Edit user',
       error_fetching_users: 'Error fetching users, please try again.',
     },
+    external_canisters: {
+      title: 'Canisters',
+      btn_add_canister: 'Add canister',
+      add_new_canister_title: 'Add new canister',
+      edit_canister_title: 'Canister Configuration',
+      error_fetching_canisters: 'Error fetching canisters, please try again.',
+    },
     user_groups: {
       title: 'User Groups',
       btn_new_group: 'Create group',
@@ -602,6 +649,7 @@ export default {
       error_loading_user_groups: 'Error loading user groups, please try again.',
       btn_edit_title: 'Edit user group',
       create_new_group_title: 'Create new user group',
+      disaster_recovery_group_tooltip: 'Members of this group can perform disaster recovery.',
     },
     add_station: {
       initialization_title: 'Welcome! How would you like to join Orbit?',
@@ -705,11 +753,11 @@ export default {
       permission: 'Access Policy',
       requestpolicy: 'Request Policy',
       system: 'System',
-      changecanister: 'Change Canister',
       transfer: 'Transfer',
       request: 'Request',
       addressbook: 'Address Book',
       managesysteminfo: 'Manage System Info',
+      externalcanister: 'External Canister',
     },
     actions: {
       list: 'List',
@@ -723,6 +771,9 @@ export default {
       systeminfocapabilities: 'Capabilities (Supported Assets)',
       systeminfoconfig: 'Configuration (Upgrades, Metrics, Usage)',
       managesysteminfo: 'Manage System Info (e.g. name)',
+      systemupgrade: 'Upgrade',
+      change: 'Change',
+      fund: 'Fund',
     },
     allow: {
       public: 'Anyone',
@@ -760,7 +811,7 @@ export default {
       removeaddressbookentry: 'Remove address book entry',
       editaddressbookentry: 'Edit address book entry',
       addrequestpolicy: 'Add request policy',
-      changecanister: 'Change canister',
+      systemupgrade: 'System upgrade',
       editrequestpolicy: 'Edit request policy',
       edituser: 'Edit user',
       transfer: 'Transfer',
@@ -769,7 +820,15 @@ export default {
       removeusergroup: 'Remove user group',
       addaccount: 'Add account',
       managesysteminfo: 'Manage system info',
-      changeexternalcanister: 'Change external canister',
+      changeexternalcanister: 'Change canister',
+      fundexternalcanister: 'Fund canister',
+      setdisasterrecovery: 'Configure disaster recovery',
+      callexternalcanister: 'Call canister',
+      createexternalcanister: 'Create canister',
     },
+  },
+  cycle_obtain_strategies: {
+    disabled: 'Disabled',
+    mintfromnativetoken: 'Mint from ICP account',
   },
 };

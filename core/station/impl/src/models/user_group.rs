@@ -1,5 +1,6 @@
 use crate::{errors::UserGroupError, repositories::USER_GROUP_REPOSITORY};
 use candid::{CandidType, Deserialize};
+use orbit_essentials::model::ModelKey;
 use orbit_essentials::storable;
 use orbit_essentials::{
     model::{ModelValidator, ModelValidatorResult},
@@ -22,6 +23,12 @@ pub struct UserGroup {
     pub name: String,
     /// The last time the record was updated or created.
     pub last_modification_timestamp: Timestamp,
+}
+
+impl ModelKey<UserGroupId> for UserGroup {
+    fn key(&self) -> UserGroupId {
+        self.id
+    }
 }
 
 #[derive(CandidType, Deserialize, Debug, Clone)]
@@ -160,7 +167,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "canbench"))]
 pub mod user_group_test_utils {
     use super::*;
     use orbit_essentials::repository::Repository;

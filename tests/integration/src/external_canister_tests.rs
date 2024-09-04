@@ -11,15 +11,15 @@ use orbit_essentials::api::ApiResult;
 use pocket_ic::update_candid_as;
 use sha2::{Digest, Sha256};
 use station_api::{
-    AddRequestPolicyOperationInput, CallExternalCanisterOperationInput,
+    AddRequestPolicyOperationInput, AllowDTO, CallExternalCanisterOperationInput,
     CallExternalCanisterResourceTargetDTO, CanisterInstallMode, CanisterMethodDTO,
-    ChangeExternalCanisterOperationInput, ChangeExternalCanisterResourceTargetDTO,
-    CreateExternalCanisterOperationInput, CreateExternalCanisterResourceTargetDTO,
-    EditPermissionOperationInput, ExecutionMethodResourceTargetDTO, ListRequestsInput,
-    ListRequestsOperationTypeDTO, ListRequestsResponse, QuorumDTO,
-    ReadExternalCanisterResourceTargetDTO, RequestApprovalStatusDTO, RequestOperationDTO,
-    RequestOperationInput, RequestPolicyRuleDTO, RequestSpecifierDTO, RequestStatusDTO,
-    UserSpecifierDTO, ValidationMethodResourceTargetDTO,
+    ChangeExternalCanisterOperationInput, CreateExternalCanisterOperationInput,
+    CreateExternalCanisterOperationKindCreateNewDTO, CreateExternalCanisterOperationKindDTO,
+    EditPermissionOperationInput, ExecutionMethodResourceTargetDTO, ExternalCanisterIdDTO,
+    ExternalCanisterPermissionsInput, ExternalCanisterRequestPoliciesInput, ListRequestsInput,
+    ListRequestsOperationTypeDTO, ListRequestsResponse, QuorumDTO, RequestApprovalStatusDTO,
+    RequestOperationDTO, RequestOperationInput, RequestPolicyRuleDTO, RequestSpecifierDTO,
+    RequestStatusDTO, UserSpecifierDTO, ValidationMethodResourceTargetDTO,
 };
 
 #[test]
@@ -72,14 +72,14 @@ fn successful_four_eyes_upgrade() {
         change_canister_operation.clone(),
     );
     assert!(trap_message.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Change"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Change"
     ));
 
     // allow anyone to create change canister requests
     let add_permission = RequestOperationInput::EditPermission(EditPermissionOperationInput {
         resource: station_api::ResourceDTO::ExternalCanister(
             station_api::ExternalCanisterResourceActionDTO::Change(
-                ChangeExternalCanisterResourceTargetDTO::Canister(canister_id),
+                ExternalCanisterIdDTO::Canister(canister_id),
             ),
         ),
         auth_scope: Some(station_api::AuthScopeDTO::Authenticated),
@@ -125,7 +125,7 @@ fn successful_four_eyes_upgrade() {
     let add_request_policy =
         RequestOperationInput::AddRequestPolicy(AddRequestPolicyOperationInput {
             specifier: RequestSpecifierDTO::ChangeExternalCanister(
-                ChangeExternalCanisterResourceTargetDTO::Canister(canister_id),
+                ExternalCanisterIdDTO::Canister(canister_id),
             ),
             rule: RequestPolicyRuleDTO::Quorum(QuorumDTO {
                 approvers: UserSpecifierDTO::Any,
@@ -372,7 +372,33 @@ fn create_external_canister_and_check_status() {
 
     // submitting request to create a external canister fails due to insufficient permissions to create such requests
     let create_canister_operation =
-        RequestOperationInput::CreateExternalCanister(CreateExternalCanisterOperationInput {});
+        RequestOperationInput::CreateExternalCanister(CreateExternalCanisterOperationInput {
+            kind: CreateExternalCanisterOperationKindDTO::CreateNew(
+                CreateExternalCanisterOperationKindCreateNewDTO {
+                    initial_cycles: None,
+                },
+            ),
+            name: "test".to_string(),
+            description: None,
+            labels: None,
+            permissions: ExternalCanisterPermissionsInput {
+                calls: vec![],
+                read: AllowDTO {
+                    auth_scope: station_api::AuthScopeDTO::Restricted,
+                    user_groups: vec![],
+                    users: vec![],
+                },
+                change: AllowDTO {
+                    auth_scope: station_api::AuthScopeDTO::Restricted,
+                    user_groups: vec![],
+                    users: vec![],
+                },
+            },
+            request_policies: ExternalCanisterRequestPoliciesInput {
+                change: Vec::new(),
+                calls: vec![],
+            },
+        });
     let trap_message = submit_request_with_expected_trap(
         &env,
         user_a,
@@ -380,15 +406,13 @@ fn create_external_canister_and_check_status() {
         create_canister_operation.clone(),
     );
     assert!(trap_message.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Create"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Create"
     ));
 
     // allow anyone to create requests to create a external canister
     let add_permission = RequestOperationInput::EditPermission(EditPermissionOperationInput {
         resource: station_api::ResourceDTO::ExternalCanister(
-            station_api::ExternalCanisterResourceActionDTO::Create(
-                CreateExternalCanisterResourceTargetDTO::Any,
-            ),
+            station_api::ExternalCanisterResourceActionDTO::Create,
         ),
         auth_scope: Some(station_api::AuthScopeDTO::Authenticated),
         user_groups: None,
@@ -441,9 +465,7 @@ fn create_external_canister_and_check_status() {
     // set four eyes principle for creating external canisters
     let add_request_policy =
         RequestOperationInput::AddRequestPolicy(AddRequestPolicyOperationInput {
-            specifier: RequestSpecifierDTO::CreateExternalCanister(
-                CreateExternalCanisterResourceTargetDTO::Any,
-            ),
+            specifier: RequestSpecifierDTO::CreateExternalCanister,
             rule: RequestPolicyRuleDTO::Quorum(QuorumDTO {
                 approvers: UserSpecifierDTO::Any,
                 min_approved: 2,
@@ -546,7 +568,7 @@ fn create_external_canister_and_check_status() {
     )
     .unwrap_err();
     assert!(trap_message.description.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Read"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Read"
     ));
     let trap_message = update_raw(
         &env,
@@ -557,15 +579,15 @@ fn create_external_canister_and_check_status() {
     )
     .unwrap_err();
     assert!(trap_message.description.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Read"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Read"
     ));
 
     // allow the first user to read the canister status of the external canister created above
     let add_permission = RequestOperationInput::EditPermission(EditPermissionOperationInput {
         resource: station_api::ResourceDTO::ExternalCanister(
-            station_api::ExternalCanisterResourceActionDTO::Read(
-                ReadExternalCanisterResourceTargetDTO::Canister(canister_id),
-            ),
+            station_api::ExternalCanisterResourceActionDTO::Read(ExternalCanisterIdDTO::Canister(
+                canister_id,
+            )),
         ),
         auth_scope: None,
         user_groups: None,
@@ -599,7 +621,7 @@ fn create_external_canister_and_check_status() {
     )
     .unwrap_err();
     assert!(trap_message.description.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Read"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Read"
     ));
 }
 
@@ -690,7 +712,7 @@ fn call_external_canister_test() {
         call_canister_operation.clone(),
     );
     assert!(trap_message.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Call"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Call"
     ));
 
     // nothing should have changed so far
@@ -877,7 +899,7 @@ fn call_external_canister_test() {
         illegal_call_canister_operation.clone(),
     );
     assert!(trap_message.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Call"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Call"
     ));
 
     // submit a request labeling the execution method as the validation method which is illegal given the permissions set so far
@@ -895,7 +917,7 @@ fn call_external_canister_test() {
         illegal_call_canister_operation.clone(),
     );
     assert!(trap_message.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Call"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Call"
     ));
 
     // submit a request labeling the validation method as the execution method which is illegal given the permissions set so far
@@ -913,7 +935,7 @@ fn call_external_canister_test() {
         illegal_call_canister_operation.clone(),
     );
     assert!(trap_message.contains(
-        "Canister trapped explicitly: Unauthorized access to resources: ExternalCanister(Call"
+        "Canister called `ic0.trap` with message: Unauthorized access to resources: ExternalCanister(Call"
     ));
 
     // nothing should have changed
