@@ -208,6 +208,8 @@ export const useStationStore = defineStore('station', {
         // loads the capabilities of the station
         this.configuration.details = await stationService.capabilities();
 
+        console.log('🚀 ~ connectTo ~ details:', await stationService.capabilities());
+
         startWorkers(stationId);
 
         this.connectionStatus = ConnectionStatus.Connected;

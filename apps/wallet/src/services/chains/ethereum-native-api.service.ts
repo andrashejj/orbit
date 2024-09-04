@@ -9,10 +9,6 @@ export class EthereumNativeApi implements ChainApi {
     return isValidSha256(address);
   }
 
-  async fetchBalance(): Promise<bigint> {
-    return BigInt(123n);
-  }
-
   async fetchTransfers(input: FetchTransfersInput): Promise<AccountIncomingTransfer[]> {
     return [];
   }

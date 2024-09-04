@@ -85,15 +85,23 @@ export default {
   },
   blockchains: {
     icp: {
-      name: 'Internet Computer',
+      name: 'The Internet Computer',
       standards: {
         native: 'Native',
       },
     },
     eth: {
-      name: 'Ethereum',
+      name: 'Ethereum what?',
       standards: {
         native: 'Native',
+        erc20: 'ERC20',
+      },
+    },
+    eth_sepolia: {
+      name: 'Ethereum Sepolia',
+      standards: {
+        native: 'Native',
+        erc20: 'ERC20',
       },
     },
     btc: {

@@ -9,6 +9,7 @@ use std::str::FromStr;
 pub enum Blockchain {
     InternetComputer,
     Ethereum,
+    EthereumSepolia,
     Bitcoin,
 }
 
@@ -18,6 +19,7 @@ impl Blockchain {
         match self {
             Blockchain::InternetComputer => "ICP",
             Blockchain::Ethereum => "ETH",
+            Blockchain::EthereumSepolia => "ETH Sepolia",
             Blockchain::Bitcoin => "BTC",
         }
     }
@@ -29,6 +31,9 @@ impl Blockchain {
                 vec![BlockchainStandard::Native, BlockchainStandard::ICRC1]
             }
             Blockchain::Ethereum => vec![BlockchainStandard::Native, BlockchainStandard::ERC20],
+            Blockchain::EthereumSepolia => {
+                vec![BlockchainStandard::Native, BlockchainStandard::ERC20]
+            }
             Blockchain::Bitcoin => vec![BlockchainStandard::Native],
         }
     }
@@ -41,6 +46,7 @@ impl FromStr for Blockchain {
         match variant {
             "icp" => Ok(Blockchain::InternetComputer),
             "eth" => Ok(Blockchain::Ethereum),
+            "eth_sepolia" => Ok(Blockchain::EthereumSepolia),
             "btc" => Ok(Blockchain::Bitcoin),
             _ => Err(()),
         }
@@ -52,6 +58,7 @@ impl Display for Blockchain {
         match self {
             Blockchain::InternetComputer => write!(f, "icp"),
             Blockchain::Ethereum => write!(f, "eth"),
+            Blockchain::EthereumSepolia => write!(f, "eth_sepolia"),
             Blockchain::Bitcoin => write!(f, "btc"),
         }
     }
@@ -70,6 +77,11 @@ mod tests {
         );
         assert_eq!(Blockchain::Ethereum.to_string(), "eth");
         assert_eq!(Blockchain::from_str("eth").unwrap(), Blockchain::Ethereum);
+        assert_eq!(Blockchain::EthereumSepolia.to_string(), "eth_sepolia");
+        assert_eq!(
+            Blockchain::from_str("eth_sepolia").unwrap(),
+            Blockchain::EthereumSepolia
+        );
         assert_eq!(Blockchain::Bitcoin.to_string(), "btc");
         assert_eq!(Blockchain::from_str("btc").unwrap(), Blockchain::Bitcoin);
     }
@@ -78,6 +90,7 @@ mod tests {
     fn match_native_symbols_successfully() {
         assert_eq!(Blockchain::InternetComputer.native_symbol(), "ICP");
         assert_eq!(Blockchain::Ethereum.native_symbol(), "ETH");
+        assert_eq!(Blockchain::EthereumSepolia.native_symbol(), "ETH Sepolia");
         assert_eq!(Blockchain::Bitcoin.native_symbol(), "BTC");
     }
 
@@ -93,6 +106,12 @@ mod tests {
             .supported_standards()
             .contains(&BlockchainStandard::Native));
         assert!(Blockchain::Ethereum
+            .supported_standards()
+            .contains(&BlockchainStandard::ERC20));
+        assert!(!Blockchain::EthereumSepolia
+            .supported_standards()
+            .contains(&BlockchainStandard::Native));
+        assert!(!Blockchain::EthereumSepolia
             .supported_standards()
             .contains(&BlockchainStandard::ERC20));
         assert!(Blockchain::Bitcoin

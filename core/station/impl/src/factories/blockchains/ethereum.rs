@@ -37,10 +37,8 @@ pub enum EthereumNetwork {
 }
 
 impl Ethereum {
-    pub fn create() -> Self {
-        Self {
-            chain: alloy_chains::Chain::sepolia(),
-        }
+    pub fn create(blockchain: alloy_chains::Chain) -> Self {
+        Self { chain: blockchain }
     }
 
     async fn estimate_transaction_fee(

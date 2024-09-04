@@ -11,6 +11,7 @@ export class ChainApiFactory {
       case `${BlockchainType.InternetComputer}-${BlockchainStandard.Native}`:
         return new ICNativeApi(account);
       case `${BlockchainType.Ethereum}-${BlockchainStandard.Native}`:
+      case `${BlockchainType.EthereumSepolia}-${BlockchainStandard.Native}`:
         return new EthereumNativeApi(account);
       default:
         throw new Error(`Blockchain not supported ${chainAndStandard}`);

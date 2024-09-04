@@ -86,7 +86,7 @@ export const useDefaultAccountSetupWizardModel = ({
     configuration: {
       blockchain: BlockchainType.InternetComputer,
       standard: BlockchainStandard.Native,
-      symbol: TokenSymbol.ICP,
+      symbol: TokenSymbol.ETH,
     },
     permission: {
       read: {

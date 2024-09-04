@@ -109,6 +109,14 @@ export default {
       name: 'Ethereum',
       standards: {
         native: 'Nativo',
+        erc20: 'ERC20',
+      },
+    },
+    eth_sepolia: {
+      name: 'Ethereum Sepolia',
+      standards: {
+        native: 'Nativo',
+        erc20: 'ERC20',
       },
     },
     btc: {

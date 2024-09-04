@@ -9,7 +9,7 @@ thread_local! {
           blockchain: Blockchain::InternetComputer,
           standard: BlockchainStandard::Native,
           symbol: "ICP".to_string(),
-          name: "Internet Computer".to_string(),
+          name: "Internet The".to_string(),
           metadata: Metadata::default(),
         },
         Asset {
@@ -17,6 +17,27 @@ thread_local! {
             standard: BlockchainStandard::Native,
             symbol: "ETH".to_string(),
             name: "Ethereum".to_string(),
+            metadata: Metadata::default(),
+        },
+        Asset {
+            blockchain: Blockchain::Ethereum,
+            standard: BlockchainStandard::ERC20,
+            symbol: "ETH".to_string(),
+            name: "Ethereum".to_string(),
+            metadata: Metadata::default(),
+        },
+        Asset {
+            blockchain: Blockchain::EthereumSepolia,
+            standard: BlockchainStandard::Native,
+            symbol: "ETH Sepolia".to_string(),
+            name: "Ethereum Sepolia".to_string(),
+            metadata: Metadata::default(),
+        },
+        Asset {
+            blockchain: Blockchain::EthereumSepolia,
+            standard: BlockchainStandard::ERC20,
+            symbol: "ETH Sepolia".to_string(),
+            name: "Ethereum Sepolia".to_string(),
             metadata: Metadata::default(),
         },
       ].into_iter().collect());

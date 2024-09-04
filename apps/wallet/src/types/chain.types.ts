@@ -2,14 +2,18 @@ export enum BlockchainType {
   InternetComputer = 'icp',
   Bitcoin = 'btc',
   Ethereum = 'eth',
+  EthereumSepolia = 'eth_sepolia',
 }
 
 export enum BlockchainStandard {
   Native = 'native',
+  ERC20 = 'erc20',
 }
 
 export enum TokenSymbol {
   ICP = 'ICP',
+  ETH = 'ETH',
+  ETH_SEPOLIA = 'ETH Sepolia',
 }
 
 export interface FetchTransfersInput {
@@ -31,8 +35,6 @@ export interface FetchTransfersResponse {
 }
 
 export interface ChainApi {
-  fetchBalance(): Promise<bigint>;
-
   fetchTransfers(input: FetchTransfersInput): Promise<AccountIncomingTransfer[]>;
 
   isValidAddress(address: string): boolean;
