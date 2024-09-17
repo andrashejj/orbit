@@ -19,6 +19,9 @@ export default {
     station_info_card_edit_hint: 'Modifiez vos préférences et paramètres pour ce portefeuille.',
     station_info_card_remove_btn: 'Retirer le portefeuille',
     station_info_card_remove_btn_confirm: 'Êtes-vous sûrs de vouloir retirer ce portefeuille?',
+    disaster_recovery_card_title: 'Sauvegarde',
+    disaster_recovery_not_configured: 'Sauvegarde non configurée.',
+    disaster_recovery_dialog_title: 'Configurer la sauvegarde',
     manage_associated_station: 'Gerer le portefeuille associé',
     manage_associated_station_hint:
       "Ces paramètres s'appliquent à votre utilisateur uniquement et non pas au portefeuille.",
@@ -40,7 +43,7 @@ export default {
       "Attention. Ce identité pourra acceder avec les permissions de l'utilisateur et prendre des actions en son nom.",
     export_csv: 'Exporter en CSV',
     params_parse_error: "Échec d'interpretation des paramètres, veuillez essayer de nouveau.",
-    submit_upgrade: 'Soumettre une mise à jour',
+    software_update: 'Mise à jour logicielle',
     canister_upgrade_target: 'Cible de mise à jour',
     canister_wasm_module: 'Wasm Module du Canister',
     canister_upgrade_args_input: 'Paramètres de la mise à jour (optionnel)',
@@ -80,6 +83,19 @@ export default {
     account_dialog_request_policy_transfer_hint:
       'La politique qui doit être approuvée pour transférer des fonds.',
     request_policy_rule_builder_no_rule: 'Pas de critères',
+    advanced_software_update_warning:
+      "À utiliser avec précaution. Il s'agit d'une fonctionnalité avancée pour mettre à jour le portefeuille.",
+    check_updates_btn: 'Vérifier les mises à jour',
+    update_recommended_latest:
+      'Il est recommandé de garder votre logiciel à jour pour garantir la meilleure expérience.',
+    update_already_latest_version: 'Vous êtes déjà à la dernière version.',
+    checking_for_updates: 'Vérification des mises à jour ...',
+    update_available: 'Une nouvelle version est disponible.',
+    update_automated_comment: {
+      summary: '{name} sera mis à jour vers la version {version}.',
+      verify_instructions:
+        'Pour vérifier la mise à jour, ouvrez le terminal et suivez les instructions ci-dessous:',
+    },
   },
   alpha_warning: {
     version: 'Ceci est une version alpha.',
@@ -113,7 +129,7 @@ export default {
       },
     },
   },
-  change_canister: {
+  system_upgrade: {
     targets: {
       upgradestation: 'Portefeuille',
       upgradeupgrader: 'Upgrader',
@@ -156,6 +172,7 @@ export default {
       system: 'Système',
       transfers: 'Transferts',
       users: 'Usagers',
+      external_canisters: 'Canisters',
     },
     headers: {
       id: 'ID',
@@ -181,9 +198,11 @@ export default {
       change_target: 'Cible',
       wasm_checksum: 'Checksum du Wasm',
       from_account: 'Du Compte',
+      from_account_address: 'Adresse du Compte',
       to: "A l'Adresse",
       amount: 'Montant',
       fee: 'Frais',
+      comment: 'Commentaire',
     },
     download: {
       user_group: "Groupes d'Usagers",
@@ -192,7 +211,7 @@ export default {
       permission: "Police d'Accès",
       request_policy: 'Police de Demande',
       address_book_entry: "Carnet d'Adresses",
-      change_canister: 'Mise à Jour',
+      system_upgrade: 'Mise à Jour',
       transfer: 'Transferts',
       external_canister: 'Canister Géré',
       system_info: 'Informations Système',
@@ -230,9 +249,9 @@ export default {
         title: "Supprimer une entrée de carnet d'adresses",
         request_title: "Demande de supprimer une entrée de carnet d'adresses",
       },
-      changecanister: {
-        title: 'Modifier un canister',
-        request_title: 'Demande de modifier un canister',
+      systemupgrade: {
+        title: 'Mise à jour du système',
+        request_title: 'Demande de mise à jour du système',
       },
       editpermission: {
         title: 'Modifier les permissions',
@@ -382,6 +401,13 @@ export default {
     add_station_list_item: 'Ajouter un portefeuille',
   },
   terms: {
+    active: 'Actif',
+    archived: 'Archivé',
+    canisters: 'Canisters',
+    canister: 'Canister',
+    labels: 'Étiquettes',
+    change: 'Changement',
+    quorum: 'Quorum',
     deposits: 'Deports',
     station: 'Portefeuille',
     all_done: 'Tout terminé',
@@ -396,11 +422,14 @@ export default {
     summary: 'Sommaire',
     metadata: 'Metadata',
     wasm: 'Wasm',
+    comment: 'Commentaire',
     comment_optional: 'Commentaire (optionnel)',
     arg: 'Paramètre',
     target: 'Cible',
     previous: 'Précédent',
     next: 'Suivant',
+    automated: 'Automatisé',
+    advanced: 'Avancé',
     back: 'Retour',
     permissions: 'Permissions',
     approval_policies: "Politiques d'approbation",
@@ -430,6 +459,7 @@ export default {
     see_all: 'Voir Tout',
     cancel: 'Annuler',
     checksum: 'Checksum',
+    module_checksum: 'Checksum du Module',
     rejected: 'Rejetté',
     edit: 'Modifier',
     destination_address: 'Adresse de destination',
@@ -485,6 +515,7 @@ export default {
     value: 'Valeur',
     close: 'Fermer',
     general: 'Général',
+    update: 'Mettre à jour',
     add: 'Ajouter',
     remove: 'Enlever',
     failed: 'Erreur',
@@ -510,12 +541,14 @@ export default {
     unconfirmed: 'non confirmé',
     main: 'Principal',
     user_group: "Groupe d'Usagers",
+    user_group_id: 'ID du Groupe d Usagers',
     user_groups: "Groupes d'Usagers",
     all: 'Tout',
     subset: 'sous-ensemble',
     skip: 'Sauter',
     version: 'Version',
     continue: 'Continuer',
+    cycle_obtain_strategy: 'Méthode de recharge du portefeuille',
   },
   forms: {
     create: 'Créer',
@@ -552,6 +585,7 @@ export default {
     transfer_requests: 'Demandes de Transfert',
     permissions: "Polices d'Accés",
     request_policies: "Polices d'Aprobation",
+    external_canisters: 'Canisters',
   },
   pages: {
     accounts: {
@@ -559,6 +593,8 @@ export default {
       btn_new_transfer: 'Nouveau Transfert',
       btn_upload_csv: 'Uploader un CSV',
       error_fetching_account: 'Erreur lors du chargement du compte, veuillez essayer de nouveau.',
+      cycle_obtain_account:
+        'Ce compte est utilisé pour recharger le solde de cycles de la station Orbit.',
     },
     account: {
       not_found: 'Pas de compte trouvé',
@@ -566,8 +602,9 @@ export default {
       csv_transfer_subtitle:
         "Uploader un fichier CSV pour créer plusieurs demandes de transfert d'un coup.",
       csv_transfer_file_format_hint:
-        'Le fichier CSV doit contenir les colones "{to}" et "{amount}".',
+        'Le fichier CSV doit contenir les colones "{to}" et "{amount}", et optionnellement "{comment}".',
       csv_transfer_file_column_to: 'de',
+      csv_transfer_file_column_comment: 'commentaire',
       csv_transfer_file_column_amount: 'montant',
       csv_transfer_file_rows_title: 'Transfers to be created: {count}',
       csv_ignored_transfers_hint: 'Transfers with errors will be ignored.',
@@ -587,6 +624,8 @@ export default {
     },
     administration: {
       title: 'Administration',
+      cycle_obtain_strategy_disabled: 'Stratégie de recharge des cycles non définie',
+      cycle_obtain_strategy_mint_from_native_token: 'Mint depuis le compte ICP',
     },
     users: {
       title: 'Usagers',
@@ -594,6 +633,13 @@ export default {
       create_new_user_title: 'Créer un nouvel usager',
       btn_edit_title: "Modifier l'usager",
       error_fetching_users: 'Erreur du chargement des usagers, veuillez essayer de nouveau.',
+    },
+    external_canisters: {
+      title: 'Canisters',
+      btn_add_canister: 'Ajouter un canister',
+      add_new_canister_title: 'Ajouter un nouveau canister',
+      edit_canister_title: 'Modifier le canister',
+      error_fetching_canisters: 'Erreur du chargement des canisters, veuillez essayer de nouveau.',
     },
     user_groups: {
       title: "Group d'Usagers",
@@ -603,6 +649,8 @@ export default {
         "Erreur du chargement des groupes d'usagers, veuillez essayer de nouveau.",
       btn_edit_title: "Modifier le groupe d'usagers",
       create_new_group_title: "Ajouter un nouveau groupe d'usagers",
+      disaster_recovery_group_tooltip:
+        'Les membres de ce groupe peuvent effectuer une récupération après sinistre.',
     },
     add_station: {
       initialization_title: 'Bienvenue! Comment aimeriez-vous rejoindre Orbit?',
@@ -707,11 +755,11 @@ export default {
       permission: "Police d'Accés",
       requestpolicy: 'Police de Demande',
       system: 'Système',
-      changecanister: 'Modification de Canister',
       transfer: 'Transfert',
       request: 'Demande',
       addressbook: "Carnet d'Adresses",
       managesysteminfo: 'Gérer les informations système',
+      externalcanister: 'Canister Géré',
     },
     actions: {
       list: 'Lister',
@@ -725,6 +773,9 @@ export default {
       systeminfocapabilities: 'Capacités (Actifs Pris en Charge)',
       systeminfoconfig: 'Configuration (Mises à jour, Métriques, Utilisation)',
       managesysteminfo: 'Gérer les informations système (par exemple. nom)',
+      systemupgrade: 'Mise à jour du système',
+      change: 'Changement',
+      fund: 'Financer',
     },
     allow: {
       public: "N'importe qui",
@@ -762,7 +813,7 @@ export default {
       removeaddressbookentry: "Éffacer une entrée dans le carnet d'adresses",
       editaddressbookentry: "Modifier une entrée dans le carnet d'adresses",
       addrequestpolicy: 'Ajouter une police de demande',
-      changecanister: 'Modifier un canister',
+      systemupgrade: 'Mise à jour du système',
       editrequestpolicy: 'Modifier une police de demande',
       edituser: 'Modifier un usager',
       transfer: 'Transfert',
@@ -771,7 +822,15 @@ export default {
       removeusergroup: "Éffacer un groupe d'usagers",
       addaccount: 'Ajouter un compte',
       managesysteminfo: 'Gérer les informations système',
-      changeexternalcanister: 'Modifier un canister géré',
+      changeexternalcanister: 'Modifier un canister',
+      fundexternalcanister: 'Financer un canister',
+      setdisasterrecovery: 'Définir la récupération après sinistre',
+      callexternalcanister: 'Appeler un canister',
+      createexternalcanister: 'Créer un canister',
     },
+  },
+  cycle_obtain_strategies: {
+    disabled: 'Désactivé',
+    mintfromnativetoken: 'Mint depuis le compte ICP',
   },
 };

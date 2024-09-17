@@ -9,21 +9,25 @@ use uuid::Uuid;
 
 use crate::{
     core::validation::{
-        EnsureAccount, EnsureAddressBookEntry, EnsureRequest, EnsureRequestPolicy,
-        EnsureResourceIdExists, EnsureUser, EnsureUserGroup,
+        EnsureAccount, EnsureAddressBookEntry, EnsureNotification, EnsureRequest,
+        EnsureRequestPolicy, EnsureResourceIdExists, EnsureUser, EnsureUserGroup,
     },
     errors::ValidationError,
     models::CanisterMethod,
 };
 
-#[storable]
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// The deserile implementation is available in the migration module for the `Resource` enum, this is
+/// because the enum had a backward incompatible change in the past and the migration module is handling
+/// the deserialization of the old data.
+#[storable(skip_deserialize = true)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, strum::VariantNames)]
+#[strum(serialize_all = "PascalCase")]
 pub enum Resource {
     Permission(PermissionResourceAction),
     Account(AccountResourceAction),
     AddressBook(ResourceAction),
-    ChangeCanister(ChangeCanisterResourceAction),
     ExternalCanister(ExternalCanisterResourceAction),
+    Notification(NotificationResourceAction),
     Request(RequestResourceAction),
     RequestPolicy(ResourceAction),
     System(SystemResourceAction),
@@ -54,14 +58,19 @@ impl ModelValidator<ValidationError> for Resource {
                     EnsureAddressBookEntry::resource_id_exists(resource_id)?
                 }
             },
-            Resource::ChangeCanister(action) => match action {
-                ChangeCanisterResourceAction::Create => (),
-            },
             Resource::ExternalCanister(action) => match action {
-                ExternalCanisterResourceAction::Create(_)
+                ExternalCanisterResourceAction::List
+                | ExternalCanisterResourceAction::Create
                 | ExternalCanisterResourceAction::Change(_)
+                | ExternalCanisterResourceAction::Fund(_)
                 | ExternalCanisterResourceAction::Read(_) => (),
                 ExternalCanisterResourceAction::Call(target) => target.validate()?,
+            },
+            Resource::Notification(action) => match action {
+                NotificationResourceAction::List => (),
+                NotificationResourceAction::Update(resource_id) => {
+                    EnsureNotification::resource_id_exists(resource_id)?
+                }
             },
             Resource::Request(action) => match action {
                 RequestResourceAction::List => (),
@@ -80,7 +89,8 @@ impl ModelValidator<ValidationError> for Resource {
             Resource::System(action) => match action {
                 SystemResourceAction::SystemInfo
                 | SystemResourceAction::Capabilities
-                | SystemResourceAction::ManageSystemInfo => (),
+                | SystemResourceAction::ManageSystemInfo
+                | SystemResourceAction::Upgrade => (),
             },
             Resource::User(action) => match action {
                 UserResourceAction::List | UserResourceAction::Create => (),
@@ -143,30 +153,12 @@ pub enum SystemResourceAction {
     SystemInfo,
     Capabilities,
     ManageSystemInfo,
+    Upgrade,
 }
 
 #[storable]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ChangeCanisterResourceAction {
-    Create,
-}
-
-#[storable]
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum CreateExternalCanisterResourceTarget {
-    Any,
-}
-
-#[storable]
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ChangeExternalCanisterResourceTarget {
-    Any,
-    Canister(Principal),
-}
-
-#[storable]
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ReadExternalCanisterResourceTarget {
+pub enum ExternalCanisterId {
     Any,
     Canister(Principal),
 }
@@ -174,10 +166,19 @@ pub enum ReadExternalCanisterResourceTarget {
 #[storable]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ExternalCanisterResourceAction {
-    Create(CreateExternalCanisterResourceTarget),
-    Change(ChangeExternalCanisterResourceTarget),
-    Read(ReadExternalCanisterResourceTarget),
+    List,
+    Create,
+    Change(ExternalCanisterId),
+    Read(ExternalCanisterId),
+    Fund(ExternalCanisterId),
     Call(CallExternalCanisterResourceTarget),
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum NotificationResourceAction {
+    List,
+    Update(ResourceId),
 }
 
 #[storable]
@@ -219,8 +220,8 @@ impl ModelValidator<ValidationError> for ExecutionMethodResourceTarget {
 #[storable]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CallExternalCanisterResourceTarget {
-    pub validation_method: ValidationMethodResourceTarget,
     pub execution_method: ExecutionMethodResourceTarget,
+    pub validation_method: ValidationMethodResourceTarget,
 }
 
 impl ModelValidator<ValidationError> for CallExternalCanisterResourceTarget {
@@ -362,41 +363,57 @@ impl Resource {
                     ))]
                 }
             },
-            Resource::ChangeCanister(action) => match action {
-                ChangeCanisterResourceAction::Create => {
-                    vec![Resource::ChangeCanister(
-                        ChangeCanisterResourceAction::Create,
-                    )]
-                }
-            },
             Resource::ExternalCanister(action) => match action {
-                ExternalCanisterResourceAction::Create(
-                    CreateExternalCanisterResourceTarget::Any,
-                ) => {
+                ExternalCanisterResourceAction::List => {
                     vec![Resource::ExternalCanister(
-                        ExternalCanisterResourceAction::Create(
-                            CreateExternalCanisterResourceTarget::Any,
-                        ),
+                        ExternalCanisterResourceAction::List,
                     )]
                 }
-                ExternalCanisterResourceAction::Change(
-                    ChangeExternalCanisterResourceTarget::Any,
-                ) => {
+                ExternalCanisterResourceAction::Create => {
                     vec![Resource::ExternalCanister(
-                        ExternalCanisterResourceAction::Change(
-                            ChangeExternalCanisterResourceTarget::Any,
-                        ),
+                        ExternalCanisterResourceAction::Create,
                     )]
                 }
-                ExternalCanisterResourceAction::Change(
-                    ChangeExternalCanisterResourceTarget::Canister(id),
-                ) => {
+                ExternalCanisterResourceAction::Fund(ExternalCanisterId::Any) => {
+                    vec![
+                        Resource::ExternalCanister(ExternalCanisterResourceAction::Fund(
+                            ExternalCanisterId::Any,
+                        )),
+                        // The following additional resources also enable the user to perform the `Fund` action.
+                        Resource::ExternalCanister(ExternalCanisterResourceAction::Change(
+                            ExternalCanisterId::Any,
+                        )),
+                    ]
+                }
+                ExternalCanisterResourceAction::Fund(ExternalCanisterId::Canister(id)) => {
+                    let mut associated_resources = Resource::ExternalCanister(
+                        ExternalCanisterResourceAction::Fund(ExternalCanisterId::Any),
+                    )
+                    .to_expanded_list();
+
+                    associated_resources.push(Resource::ExternalCanister(
+                        ExternalCanisterResourceAction::Fund(ExternalCanisterId::Canister(*id)),
+                    ));
+
+                    // The following additional resources also enable the user to perform the `Fund` action.
+                    associated_resources.push(Resource::ExternalCanister(
+                        ExternalCanisterResourceAction::Change(ExternalCanisterId::Any),
+                    ));
+
+                    associated_resources
+                }
+                ExternalCanisterResourceAction::Change(ExternalCanisterId::Any) => {
+                    vec![Resource::ExternalCanister(
+                        ExternalCanisterResourceAction::Change(ExternalCanisterId::Any),
+                    )]
+                }
+                ExternalCanisterResourceAction::Change(ExternalCanisterId::Canister(id)) => {
                     vec![
                         Resource::ExternalCanister(ExternalCanisterResourceAction::Change(
-                            ChangeExternalCanisterResourceTarget::Any,
+                            ExternalCanisterId::Any,
                         )),
                         Resource::ExternalCanister(ExternalCanisterResourceAction::Change(
-                            ChangeExternalCanisterResourceTarget::Canister(*id),
+                            ExternalCanisterId::Canister(*id),
                         )),
                     ]
                 }
@@ -424,6 +441,18 @@ impl Resource {
                                     validation_method: target.validation_method.clone(),
                                     execution_method:
                                         ExecutionMethodResourceTarget::ExecutionMethod(
+                                            CanisterMethod {
+                                                canister_id: canister_method.canister_id,
+                                                method_name: CanisterMethod::WILDCARD.to_string(),
+                                            },
+                                        ),
+                                },
+                            )),
+                            Resource::ExternalCanister(ExternalCanisterResourceAction::Call(
+                                CallExternalCanisterResourceTarget {
+                                    validation_method: target.validation_method.clone(),
+                                    execution_method:
+                                        ExecutionMethodResourceTarget::ExecutionMethod(
                                             canister_method.clone(),
                                         ),
                                 },
@@ -431,24 +460,38 @@ impl Resource {
                         ]
                     }
                 },
-                ExternalCanisterResourceAction::Read(ReadExternalCanisterResourceTarget::Any) => {
+                ExternalCanisterResourceAction::Read(ExternalCanisterId::Any) => {
                     vec![Resource::ExternalCanister(
-                        ExternalCanisterResourceAction::Read(
-                            ReadExternalCanisterResourceTarget::Any,
-                        ),
+                        ExternalCanisterResourceAction::Read(ExternalCanisterId::Any),
                     )]
                 }
-                ExternalCanisterResourceAction::Read(
-                    ReadExternalCanisterResourceTarget::Canister(id),
-                ) => {
+                ExternalCanisterResourceAction::Read(ExternalCanisterId::Canister(id)) => {
                     vec![
                         Resource::ExternalCanister(ExternalCanisterResourceAction::Read(
-                            ReadExternalCanisterResourceTarget::Any,
+                            ExternalCanisterId::Any,
                         )),
                         Resource::ExternalCanister(ExternalCanisterResourceAction::Read(
-                            ReadExternalCanisterResourceTarget::Canister(*id),
+                            ExternalCanisterId::Canister(*id),
                         )),
                     ]
+                }
+            },
+            Resource::Notification(action) => match action {
+                NotificationResourceAction::List => {
+                    vec![Resource::Notification(NotificationResourceAction::List)]
+                }
+                NotificationResourceAction::Update(ResourceId::Id(id)) => {
+                    vec![
+                        Resource::Notification(NotificationResourceAction::Update(ResourceId::Id(
+                            *id,
+                        ))),
+                        Resource::Notification(NotificationResourceAction::Update(ResourceId::Any)),
+                    ]
+                }
+                NotificationResourceAction::Update(ResourceId::Any) => {
+                    vec![Resource::Notification(NotificationResourceAction::Update(
+                        ResourceId::Any,
+                    ))]
                 }
             },
             Resource::Request(action) => match action {
@@ -514,6 +557,9 @@ impl Resource {
                 SystemResourceAction::ManageSystemInfo => {
                     vec![Resource::System(SystemResourceAction::ManageSystemInfo)]
                 }
+                SystemResourceAction::Upgrade => {
+                    vec![Resource::System(SystemResourceAction::Upgrade)]
+                }
             },
             Resource::User(action) => match action {
                 UserResourceAction::Create => vec![Resource::User(UserResourceAction::Create)],
@@ -578,10 +624,10 @@ impl Display for Resource {
             Resource::Permission(action) => write!(f, "Permission({})", action),
             Resource::Account(action) => write!(f, "Account({})", action),
             Resource::AddressBook(action) => write!(f, "AddressBook({})", action),
-            Resource::ChangeCanister(action) => write!(f, "ChangeCanister({})", action),
             Resource::ExternalCanister(action) => {
                 write!(f, "ExternalCanister({})", action)
             }
+            Resource::Notification(action) => write!(f, "Notification({})", action),
             Resource::Request(action) => write!(f, "Request({})", action),
             Resource::RequestPolicy(action) => write!(f, "RequestPolicy({})", action),
             Resource::System(action) => write!(f, "System({})", action),
@@ -624,38 +670,11 @@ impl Display for AccountResourceAction {
     }
 }
 
-impl Display for ChangeCanisterResourceAction {
+impl Display for ExternalCanisterId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChangeCanisterResourceAction::Create => write!(f, "Create"),
-        }
-    }
-}
-
-impl Display for CreateExternalCanisterResourceTarget {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CreateExternalCanisterResourceTarget::Any => write!(f, "Any"),
-        }
-    }
-}
-
-impl Display for ChangeExternalCanisterResourceTarget {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ChangeExternalCanisterResourceTarget::Any => write!(f, "Any"),
-            ChangeExternalCanisterResourceTarget::Canister(canister_id) => {
-                write!(f, "Canister({})", canister_id)
-            }
-        }
-    }
-}
-
-impl Display for ReadExternalCanisterResourceTarget {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ReadExternalCanisterResourceTarget::Any => write!(f, "Any"),
-            ReadExternalCanisterResourceTarget::Canister(canister_id) => {
+            ExternalCanisterId::Any => write!(f, "Any"),
+            ExternalCanisterId::Canister(canister_id) => {
                 write!(f, "Canister({})", canister_id)
             }
         }
@@ -665,17 +684,30 @@ impl Display for ReadExternalCanisterResourceTarget {
 impl Display for ExternalCanisterResourceAction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExternalCanisterResourceAction::Create(target) => {
-                write!(f, "Create({})", target)
-            }
+            ExternalCanisterResourceAction::List => write!(f, "List"),
+            ExternalCanisterResourceAction::Create => write!(f, "Create"),
             ExternalCanisterResourceAction::Change(target) => {
                 write!(f, "Change({})", target)
+            }
+            ExternalCanisterResourceAction::Fund(target) => {
+                write!(f, "Fund({})", target)
             }
             ExternalCanisterResourceAction::Call(target) => {
                 write!(f, "Call({})", target)
             }
             ExternalCanisterResourceAction::Read(target) => {
                 write!(f, "Read({})", target)
+            }
+        }
+    }
+}
+
+impl Display for NotificationResourceAction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NotificationResourceAction::List => write!(f, "List"),
+            NotificationResourceAction::Update(id) => {
+                write!(f, "Update({})", id)
             }
         }
     }
@@ -738,6 +770,7 @@ impl Display for SystemResourceAction {
             SystemResourceAction::SystemInfo => write!(f, "SystemInfo"),
             SystemResourceAction::Capabilities => write!(f, "Capabilities"),
             SystemResourceAction::ManageSystemInfo => write!(f, "ManageSystemInfo"),
+            SystemResourceAction::Upgrade => write!(f, "Upgrade"),
         }
     }
 }
@@ -766,17 +799,14 @@ impl Display for ResourceId {
 
 #[cfg(test)]
 mod test {
-    use orbit_essentials::model::ModelValidator;
-
+    use super::{
+        AccountResourceAction, ExternalCanisterId, ExternalCanisterResourceAction,
+        PermissionResourceAction, RequestResourceAction, Resource, ResourceAction, ResourceId,
+        SystemResourceAction, UserResourceAction,
+    };
     use crate::core::validation::disable_mock_resource_validation;
     use candid::Principal;
-
-    use super::{
-        AccountResourceAction, ChangeCanisterResourceAction, ChangeExternalCanisterResourceTarget,
-        CreateExternalCanisterResourceTarget, ExternalCanisterResourceAction,
-        PermissionResourceAction, ReadExternalCanisterResourceTarget, RequestResourceAction,
-        Resource, ResourceAction, ResourceId, SystemResourceAction, UserResourceAction,
-    };
+    use orbit_essentials::model::ModelValidator;
 
     #[test]
     fn test_resource_validation() {
@@ -795,21 +825,18 @@ mod test {
             Resource::AddressBook(ResourceAction::Read(ResourceId::Any)),
             Resource::AddressBook(ResourceAction::Update(ResourceId::Any)),
             Resource::AddressBook(ResourceAction::Delete(ResourceId::Any)),
-            Resource::ChangeCanister(ChangeCanisterResourceAction::Create),
-            Resource::ExternalCanister(ExternalCanisterResourceAction::Create(
-                CreateExternalCanisterResourceTarget::Any,
+            Resource::ExternalCanister(ExternalCanisterResourceAction::Create),
+            Resource::ExternalCanister(ExternalCanisterResourceAction::Change(
+                ExternalCanisterId::Any,
             )),
             Resource::ExternalCanister(ExternalCanisterResourceAction::Change(
-                ChangeExternalCanisterResourceTarget::Any,
-            )),
-            Resource::ExternalCanister(ExternalCanisterResourceAction::Change(
-                ChangeExternalCanisterResourceTarget::Canister(Principal::management_canister()),
+                ExternalCanisterId::Canister(Principal::management_canister()),
             )),
             Resource::ExternalCanister(ExternalCanisterResourceAction::Read(
-                ReadExternalCanisterResourceTarget::Any,
+                ExternalCanisterId::Any,
             )),
             Resource::ExternalCanister(ExternalCanisterResourceAction::Read(
-                ReadExternalCanisterResourceTarget::Canister(Principal::management_canister()),
+                ExternalCanisterId::Canister(Principal::management_canister()),
             )),
             Resource::Request(RequestResourceAction::List),
             Resource::Request(RequestResourceAction::Read(ResourceId::Any)),

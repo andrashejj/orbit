@@ -2,9 +2,10 @@ use super::{
     permission::{Allow, AuthScope},
     request_policy_rule::{RequestPolicyRule, RequestPolicyRuleInput},
     request_specifier::RequestSpecifier,
-    resource::Resource,
+    resource::{Resource, ValidationMethodResourceTarget},
     AccountId, AddressBookEntryId, Blockchain, BlockchainStandard, ChangeMetadata,
-    DisasterRecoveryCommittee, MetadataItem, UserGroupId, UserId, UserStatus,
+    CycleObtainStrategy, DisasterRecoveryCommittee, ExternalCanisterCallPermission,
+    ExternalCanisterState, MetadataItem, UserGroupId, UserId, UserStatus,
 };
 use crate::core::validation::EnsureExternalCanister;
 use crate::errors::ValidationError;
@@ -15,8 +16,9 @@ use orbit_essentials::model::{ModelValidator, ModelValidatorResult};
 use orbit_essentials::{storable, types::UUID};
 use std::fmt::Display;
 
-#[storable]
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[storable(skip_deserialize = true)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, strum::VariantNames)]
+#[strum(serialize_all = "PascalCase")]
 pub enum RequestOperation {
     Transfer(TransferOperation),
     AddAccount(AddAccountOperation),
@@ -30,10 +32,12 @@ pub enum RequestOperation {
     AddUserGroup(AddUserGroupOperation),
     EditUserGroup(EditUserGroupOperation),
     RemoveUserGroup(RemoveUserGroupOperation),
-    ChangeCanister(ChangeCanisterOperation),
+    SystemUpgrade(SystemUpgradeOperation),
     ChangeExternalCanister(ChangeExternalCanisterOperation),
+    ConfigureExternalCanister(ConfigureExternalCanisterOperation),
     CreateExternalCanister(CreateExternalCanisterOperation),
     CallExternalCanister(CallExternalCanisterOperation),
+    FundExternalCanister(FundExternalCanisterOperation),
     AddRequestPolicy(AddRequestPolicyOperation),
     EditRequestPolicy(EditRequestPolicyOperation),
     RemoveRequestPolicy(RemoveRequestPolicyOperation),
@@ -56,10 +60,14 @@ impl Display for RequestOperation {
             RequestOperation::AddUserGroup(_) => write!(f, "add_user_group"),
             RequestOperation::EditUserGroup(_) => write!(f, "adit_user_group"),
             RequestOperation::RemoveUserGroup(_) => write!(f, "remove_user_group"),
-            RequestOperation::ChangeCanister(_) => write!(f, "change_canister"),
+            RequestOperation::SystemUpgrade(_) => write!(f, "system_upgrade"),
             RequestOperation::ChangeExternalCanister(_) => write!(f, "change_external_canister"),
+            RequestOperation::ConfigureExternalCanister(_) => {
+                write!(f, "configure_external_canister")
+            }
             RequestOperation::CreateExternalCanister(_) => write!(f, "create_external_canister"),
             RequestOperation::CallExternalCanister(_) => write!(f, "call_external_canister"),
+            RequestOperation::FundExternalCanister(_) => write!(f, "fund_external_canister"),
             RequestOperation::AddRequestPolicy(_) => write!(f, "add_request_policy"),
             RequestOperation::EditRequestPolicy(_) => write!(f, "edit_request_policy"),
             RequestOperation::RemoveRequestPolicy(_) => write!(f, "remove_request_policy"),
@@ -74,6 +82,7 @@ impl Display for RequestOperation {
 pub struct TransferOperation {
     pub transfer_id: Option<UUID>,
     pub input: TransferOperationInput,
+    pub fee: Option<candid::Nat>,
 }
 
 #[storable]
@@ -141,7 +150,8 @@ pub struct AddAddressBookEntryOperationInput {
     pub address_owner: String,
     pub address: String,
     pub blockchain: Blockchain,
-    pub standard: BlockchainStandard,
+    #[serde(default)]
+    pub labels: Vec<String>,
     pub metadata: Vec<MetadataItem>,
 }
 
@@ -157,6 +167,8 @@ pub struct EditAddressBookEntryOperationInput {
     pub address_book_entry_id: AddressBookEntryId,
     pub address_owner: Option<String>,
     pub change_metadata: Option<ChangeMetadata>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 #[storable]
@@ -243,25 +255,26 @@ pub struct RemoveUserGroupOperationInput {
 
 #[storable]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ChangeCanisterTarget {
+pub enum SystemUpgradeTarget {
     UpgradeStation,
     UpgradeUpgrader,
 }
 
 #[storable]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ChangeCanisterOperationInput {
-    pub target: ChangeCanisterTarget,
+pub struct SystemUpgradeOperationInput {
+    pub target: SystemUpgradeTarget,
+    /// The module is only available while the operation is not finalized.
     pub module: Vec<u8>,
     pub arg: Option<Vec<u8>>,
 }
 
 #[storable]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ChangeCanisterOperation {
+pub struct SystemUpgradeOperation {
     pub module_checksum: Vec<u8>,
     pub arg_checksum: Option<Vec<u8>>,
-    pub input: ChangeCanisterOperationInput,
+    pub input: SystemUpgradeOperationInput,
 }
 
 #[storable]
@@ -325,12 +338,130 @@ pub struct ChangeExternalCanisterOperation {
 
 #[storable]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CreateExternalCanisterOperationInput {}
+pub struct ExternalCanisterPermissionsInput {
+    pub read: Allow,
+    pub change: Allow,
+    pub calls: Vec<ExternalCanisterCallPermission>,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExternalCanisterCallRequestPolicyRuleInput {
+    pub policy_id: Option<UUID>,
+    pub rule: RequestPolicyRule,
+    pub validation_method: ValidationMethodResourceTarget,
+    pub execution_method: String,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExternalCanisterChangeRequestPolicyRuleInput {
+    pub policy_id: Option<UUID>,
+    pub rule: RequestPolicyRule,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExternalCanisterRequestPoliciesInput {
+    pub change: Vec<ExternalCanisterChangeRequestPolicyRuleInput>,
+    pub calls: Vec<ExternalCanisterCallRequestPolicyRuleInput>,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CreateExternalCanisterOperationKindCreateNew {
+    pub initial_cycles: Option<u64>,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CreateExternalCanisterOperationKindAddExisting {
+    pub canister_id: Principal,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CreateExternalCanisterOperationKind {
+    CreateNew(CreateExternalCanisterOperationKindCreateNew),
+    AddExisting(CreateExternalCanisterOperationKindAddExisting),
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CreateExternalCanisterOperationInput {
+    pub kind: CreateExternalCanisterOperationKind,
+    pub name: String,
+    pub description: Option<String>,
+    pub labels: Option<Vec<String>>,
+    pub permissions: ExternalCanisterPermissionsInput,
+    pub request_policies: ExternalCanisterRequestPoliciesInput,
+}
 
 #[storable]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CreateExternalCanisterOperation {
     pub canister_id: Option<Principal>,
+    pub input: CreateExternalCanisterOperationInput,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FundExternalCanisterSendCyclesInput {
+    pub cycles: u64,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum FundExternalCanisterOperationKind {
+    Send(FundExternalCanisterSendCyclesInput),
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FundExternalCanisterOperationInput {
+    pub canister_id: Principal,
+    pub kind: FundExternalCanisterOperationKind,
+}
+
+pub type FundExternalCanisterOperation = FundExternalCanisterOperationInput;
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ConfigureExternalCanisterOperationInput {
+    pub canister_id: Principal,
+    pub kind: ConfigureExternalCanisterOperationKind,
+}
+
+pub type ConfigureExternalCanisterOperation = ConfigureExternalCanisterOperationInput;
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ConfigureExternalCanisterOperationKind {
+    Settings(ConfigureExternalCanisterSettingsInput),
+    SoftDelete,
+    Delete,
+    NativeSettings(DefiniteCanisterSettingsInput),
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DefiniteCanisterSettingsInput {
+    pub controllers: Option<Vec<Principal>>,
+    pub compute_allocation: Option<candid::Nat>,
+    pub memory_allocation: Option<candid::Nat>,
+    pub freezing_threshold: Option<candid::Nat>,
+    pub reserved_cycles_limit: Option<candid::Nat>,
+}
+
+#[storable]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct ConfigureExternalCanisterSettingsInput {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub labels: Option<Vec<String>>,
+    pub state: Option<ExternalCanisterState>,
+    pub permissions: Option<ExternalCanisterPermissionsInput>,
+    pub request_policies: Option<ExternalCanisterRequestPoliciesInput>,
 }
 
 #[storable]
@@ -338,6 +469,10 @@ pub struct CreateExternalCanisterOperation {
 pub struct CanisterMethod {
     pub canister_id: Principal,
     pub method_name: String,
+}
+
+impl CanisterMethod {
+    pub const WILDCARD: &'static str = "*";
 }
 
 impl ModelValidator<ValidationError> for CanisterMethod {
@@ -425,6 +560,7 @@ pub struct RemoveRequestPolicyOperation {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ManageSystemInfoOperationInput {
     pub name: Option<String>,
+    pub cycle_obtain_strategy: Option<CycleObtainStrategy>,
 }
 
 #[storable]

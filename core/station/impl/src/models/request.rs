@@ -20,6 +20,7 @@ use crate::errors::{EvaluateError, RequestError, ValidationError};
 use crate::models::resource::{ExecutionMethodResourceTarget, ValidationMethodResourceTarget};
 use crate::repositories::USER_REPOSITORY;
 use candid::{CandidType, Deserialize};
+use orbit_essentials::model::ModelKey;
 use orbit_essentials::repository::Repository;
 use orbit_essentials::storable;
 use orbit_essentials::{
@@ -71,6 +72,12 @@ pub struct Request {
 pub struct RequestKey {
     /// The request id, which is a UUID.
     pub id: RequestId,
+}
+
+impl ModelKey<RequestKey> for Request {
+    fn key(&self) -> RequestKey {
+        RequestKey { id: self.id }
+    }
 }
 
 #[derive(CandidType, Deserialize, Debug, Clone)]
@@ -205,8 +212,10 @@ fn validate_request_operation_foreign_keys(
         RequestOperation::RemoveUserGroup(ok) => {
             EnsureUserGroup::id_exists(&ok.input.user_group_id)?;
         }
-        RequestOperation::ChangeCanister(_) => (),
+        RequestOperation::SystemUpgrade(_) => (),
         RequestOperation::ChangeExternalCanister(_) => (),
+        RequestOperation::ConfigureExternalCanister(_) => (),
+        RequestOperation::FundExternalCanister(_) => (),
         RequestOperation::CreateExternalCanister(_) => (),
         RequestOperation::CallExternalCanister(op) => {
             let validation_method_target: ValidationMethodResourceTarget =
@@ -288,15 +297,30 @@ impl Request {
         next_time() + time_in_ns
     }
 
-    pub async fn can_approve(&self, user_id: &UUID) -> bool {
-        let validator = RequestApprovalRightsEvaluator {
-            request_id: self.id,
+    /// Checks if the user can approve the request.
+    pub fn can_approve(&self, user_id: &UUID) -> bool {
+        // Only requests that are in the created state can be approved.
+        if self.status != RequestStatus::Created {
+            return false;
+        }
+
+        // If the user has already added their approval, they can't add again.
+        if self
+            .approvals
+            .iter()
+            .any(|approval| approval.approver_id == *user_id)
+        {
+            return false;
+        }
+
+        let approval_rights_evaluator = RequestApprovalRightsEvaluator {
+            request: &self.index_fields(),
             approver_id: *user_id,
             approval_rights_evaluator: REQUEST_APPROVE_RIGHTS_REQUEST_POLICY_RULE_EVALUATOR.clone(),
         };
 
-        match validator.evaluate() {
-            Ok(can_approve) => can_approve,
+        match approval_rights_evaluator.evaluate() {
+            Ok(has_approval_right) => has_approval_right,
             Err(_) => {
                 print(format!(
                     "Failed to evaluate voting rights for request: {:?}",
@@ -369,6 +393,19 @@ impl Request {
 
         evaluator.evaluate()
     }
+
+    /// Checks if the request is finalized.
+    ///
+    /// A request that is finalized won't have its status changed anymore.
+    pub fn is_finalized(&self) -> bool {
+        matches!(
+            self.status,
+            RequestStatus::Completed { .. }
+                | RequestStatus::Cancelled { .. }
+                | RequestStatus::Failed { .. }
+                | RequestStatus::Rejected
+        )
+    }
 }
 
 #[cfg(test)]
@@ -430,22 +467,27 @@ mod tests {
 
         let account_service = AccountService::default();
         let account = account_service
-            .create_account(AddAccountOperationInput {
-                name: "a".to_owned(),
-                blockchain: crate::models::Blockchain::InternetComputer,
-                standard: crate::models::BlockchainStandard::Native,
-                metadata: Metadata::default(),
-                read_permission: Allow::default(),
-                configs_permission: Allow::default(),
-                transfer_permission: Allow::default(),
-                configs_request_policy: None,
-                transfer_request_policy: None,
-            })
+            .create_account(
+                AddAccountOperationInput {
+                    name: "a".to_owned(),
+                    blockchain: crate::models::Blockchain::InternetComputer,
+                    standard: crate::models::BlockchainStandard::Native,
+                    metadata: Metadata::default(),
+                    read_permission: Allow::default(),
+                    configs_permission: Allow::default(),
+                    transfer_permission: Allow::default(),
+                    configs_request_policy: None,
+                    transfer_request_policy: None,
+                },
+                None,
+            )
             .await
             .expect("Failed to create account");
 
         let operation = RequestOperation::Transfer(TransferOperation {
             transfer_id: None,
+            fee: None,
+
             input: TransferOperationInput {
                 network: "mainnet".to_string(),
                 amount: 1u64.into(),
@@ -467,6 +509,7 @@ mod tests {
 
         validate_request_operation_foreign_keys(&RequestOperation::Transfer(TransferOperation {
             transfer_id: None,
+            fee: None,
             input: TransferOperationInput {
                 network: "mainnet".to_string(),
                 amount: 1u64.into(),
@@ -581,6 +624,7 @@ mod tests {
                     address_book_entry_id: [0; 16],
                     address_owner: None,
                     change_metadata: None,
+                    labels: None,
                 },
             },
         ))
@@ -646,6 +690,7 @@ pub mod request_test_utils {
             execution_plan: RequestExecutionPlan::Immediate,
             operation: RequestOperation::Transfer(TransferOperation {
                 transfer_id: None,
+                fee: None,
                 input: TransferOperationInput {
                     network: "mainnet".to_string(),
                     amount: candid::Nat(BigUint::from(100u32)),

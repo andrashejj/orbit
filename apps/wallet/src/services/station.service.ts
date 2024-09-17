@@ -9,8 +9,9 @@ import {
   AddUserGroupOperationInput,
   AddUserOperationInput,
   Capabilities,
-  ChangeCanisterOperationInput,
+  CreateExternalCanisterOperationInput,
   CreateRequestInput,
+  DisasterRecoveryCommittee,
   EditAccountOperationInput,
   EditAddressBookEntryOperationInput,
   EditPermissionOperationInput,
@@ -22,6 +23,8 @@ import {
   GetAccountResult,
   GetAddressBookEntryInput,
   GetAddressBookEntryResult,
+  GetExternalCanisterFiltersResult,
+  GetExternalCanisterResult,
   GetNextApprovableRequestResult,
   GetPermissionInput,
   GetPermissionResult,
@@ -36,6 +39,7 @@ import {
   ListAccountTransfersInput,
   ListAccountsResult,
   ListAddressBookEntriesResult,
+  ListExternalCanistersResult,
   ListNotificationsInput,
   ListPermissionsInput,
   ListPermissionsResult,
@@ -51,6 +55,8 @@ import {
   RemoveUserGroupOperationInput,
   Request,
   SubmitRequestApprovalInput,
+  SystemInfoResult,
+  SystemUpgradeOperationInput,
   Transfer,
   TransferListItem,
   TransferOperationInput,
@@ -65,6 +71,7 @@ import {
   GetNextApprovableRequestArgs,
   ListAccountsArgs,
   ListAddressBookEntriesArgs,
+  ListExternalCanistersArgs,
   ListRequestsArgs,
 } from '~/types/station.types';
 import { transformIdlWithOnlyVerifiedCalls, variantIs } from '~/utils/helper.utils';
@@ -361,6 +368,17 @@ export class StationService {
     return result.Ok.capabilities;
   }
 
+  async systemInfo(verifiedCall = false): Promise<ExtractOk<SystemInfoResult>> {
+    const actor = verifiedCall ? this.verified_actor : this.actor;
+    const result = await actor.system_info();
+
+    if (variantIs(result, 'Err')) {
+      throw result.Err;
+    }
+
+    return result.Ok;
+  }
+
   async listNotifications(
     input: ListNotificationsInput,
     verifiedCall = false,
@@ -519,7 +537,7 @@ export class StationService {
   }
 
   async listAddressBook(
-    { limit, offset, blockchain, standard, ids, addresses }: ListAddressBookEntriesArgs = {},
+    { limit, offset, blockchain, labels, ids, addresses }: ListAddressBookEntriesArgs = {},
     verifiedCall = false,
   ): Promise<ExtractOk<ListAddressBookEntriesResult>> {
     const actor = verifiedCall ? this.verified_actor : this.actor;
@@ -530,15 +548,8 @@ export class StationService {
           offset: offset !== undefined ? [BigInt(offset)] : [],
         },
       ],
-      address_chain:
-        blockchain && standard
-          ? [
-              {
-                blockchain: blockchain,
-                standard: standard,
-              },
-            ]
-          : [],
+      blockchain: blockchain ? [blockchain] : [],
+      labels: labels ? [labels] : [],
       addresses: addresses ? [addresses] : [],
       ids: ids ? [ids] : [],
     });
@@ -548,6 +559,85 @@ export class StationService {
     }
 
     return result.Ok;
+  }
+
+  async getExternalCanisterByCanisterId(
+    canisterId: Principal,
+    verifiedCall = false,
+  ): Promise<ExtractOk<GetExternalCanisterResult>> {
+    const actor = verifiedCall ? this.verified_actor : this.actor;
+    const result = await actor.get_external_canister({
+      canister_id: canisterId,
+    });
+
+    if (variantIs(result, 'Err')) {
+      throw result.Err;
+    }
+
+    return result.Ok;
+  }
+
+  async listExternalCanisters(
+    { states, labels, canisterIds, limit, offset, sortBy }: ListExternalCanistersArgs = {},
+    verifiedCall = false,
+  ): Promise<ExtractOk<ListExternalCanistersResult>> {
+    const actor = verifiedCall ? this.verified_actor : this.actor;
+    const result = await actor.list_external_canisters({
+      canister_ids: canisterIds ? [canisterIds] : [],
+      labels: labels ? [labels] : [],
+      states: states ? [states] : [],
+      sort_by: sortBy ? [sortBy] : [],
+      paginate: [
+        {
+          limit: limit ? [limit] : [],
+          offset: offset ? [BigInt(offset)] : [],
+        },
+      ],
+    });
+
+    if (variantIs(result, 'Err')) {
+      throw result.Err;
+    }
+
+    return result.Ok;
+  }
+
+  async fetchExternalCanisterFilters(
+    args: {
+      with_labels?: boolean;
+      with_name?: string;
+    } = {},
+    verifiedCall = false,
+  ): Promise<ExtractOk<GetExternalCanisterFiltersResult>> {
+    const actor = verifiedCall ? this.verified_actor : this.actor;
+    const result = await actor.get_external_canister_filters({
+      with_labels: args.with_labels !== undefined ? [args.with_labels] : [],
+      with_name:
+        args.with_name !== undefined
+          ? [{ prefix: args.with_name.length ? [args.with_name] : [] }]
+          : [],
+    });
+
+    if (variantIs(result, 'Err')) {
+      throw result.Err;
+    }
+
+    return result.Ok;
+  }
+
+  async addCanister(input: CreateExternalCanisterOperationInput): Promise<Request> {
+    const result = await this.actor.create_request({
+      execution_plan: [{ Immediate: null }],
+      title: [],
+      summary: [],
+      operation: { CreateExternalCanister: input },
+    });
+
+    if (variantIs(result, 'Err')) {
+      throw result.Err;
+    }
+
+    return result.Ok.request;
   }
 
   async getAccount(
@@ -749,6 +839,27 @@ export class StationService {
     return result.Ok.request;
   }
 
+  async createSetDisasterRecoveryCommitteeRequest(
+    input: DisasterRecoveryCommittee,
+  ): Promise<Request> {
+    const result = await this.actor.create_request({
+      execution_plan: [{ Immediate: null }],
+      title: [],
+      summary: [],
+      operation: {
+        SetDisasterRecovery: {
+          committee: [input],
+        },
+      },
+    });
+
+    if (variantIs(result, 'Err')) {
+      throw result.Err;
+    }
+
+    return result.Ok.request;
+  }
+
   async editAccount(input: EditAccountOperationInput): Promise<Request> {
     const result = await this.actor.create_request({
       execution_plan: [{ Immediate: null }],
@@ -794,12 +905,15 @@ export class StationService {
     return result.Ok.request;
   }
 
-  async changeCanister(input: ChangeCanisterOperationInput): Promise<Request> {
+  async systemUpgrade(
+    input: SystemUpgradeOperationInput,
+    opts: { comment?: string } = {},
+  ): Promise<Request> {
     const result = await this.actor.create_request({
       execution_plan: [{ Immediate: null }],
       title: [],
-      summary: [],
-      operation: { ChangeCanister: input },
+      summary: opts.comment ? [opts.comment] : [],
+      operation: { SystemUpgrade: input },
     });
 
     if (variantIs(result, 'Err')) {

@@ -6,8 +6,8 @@ pub enum ResourceDTO {
     Permission(PermissionResourceActionDTO),
     Account(AccountResourceActionDTO),
     AddressBook(ResourceActionDTO),
-    ChangeCanister(ChangeCanisterResourceActionDTO),
     ExternalCanister(ExternalCanisterResourceActionDTO),
+    Notification(NotificationResourceActionDTO),
     Request(RequestResourceActionDTO),
     RequestPolicy(ResourceActionDTO),
     System(SystemResourceActionDTO),
@@ -64,36 +64,29 @@ pub enum SystemResourceActionDTO {
     SystemInfo,
     Capabilities,
     ManageSystemInfo,
+    Upgrade,
 }
 
 #[derive(CandidType, serde::Serialize, Deserialize, Debug, Clone)]
-pub enum ChangeCanisterResourceActionDTO {
-    Create,
-}
-
-#[derive(CandidType, serde::Serialize, Deserialize, Debug, Clone)]
-pub enum CreateExternalCanisterResourceTargetDTO {
-    Any,
-}
-
-#[derive(CandidType, serde::Serialize, Deserialize, Debug, Clone)]
-pub enum ChangeExternalCanisterResourceTargetDTO {
-    Any,
-    Canister(Principal),
-}
-
-#[derive(CandidType, serde::Serialize, Deserialize, Debug, Clone)]
-pub enum ReadExternalCanisterResourceTargetDTO {
+pub enum ExternalCanisterIdDTO {
     Any,
     Canister(Principal),
 }
 
 #[derive(CandidType, serde::Serialize, Deserialize, Debug, Clone)]
 pub enum ExternalCanisterResourceActionDTO {
-    Create(CreateExternalCanisterResourceTargetDTO),
-    Change(ChangeExternalCanisterResourceTargetDTO),
+    List,
+    Create,
+    Read(ExternalCanisterIdDTO),
+    Fund(ExternalCanisterIdDTO),
+    Change(ExternalCanisterIdDTO),
     Call(CallExternalCanisterResourceTargetDTO),
-    Read(ReadExternalCanisterResourceTargetDTO),
+}
+
+#[derive(CandidType, serde::Serialize, Deserialize, Debug, Clone)]
+pub enum NotificationResourceActionDTO {
+    List,
+    Update(ResourceIdDTO),
 }
 
 #[derive(CandidType, serde::Serialize, Deserialize, Debug, Clone)]

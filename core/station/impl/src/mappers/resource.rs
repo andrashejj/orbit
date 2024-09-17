@@ -1,10 +1,9 @@
 use crate::models::{
     resource::{
-        AccountResourceAction, CallExternalCanisterResourceTarget, ChangeCanisterResourceAction,
-        ChangeExternalCanisterResourceTarget, CreateExternalCanisterResourceTarget,
-        ExecutionMethodResourceTarget, ExternalCanisterResourceAction, PermissionResourceAction,
-        ReadExternalCanisterResourceTarget, RequestResourceAction, Resource, ResourceAction,
-        ResourceId, SystemResourceAction, UserResourceAction, ValidationMethodResourceTarget,
+        AccountResourceAction, CallExternalCanisterResourceTarget, ExecutionMethodResourceTarget,
+        ExternalCanisterId, ExternalCanisterResourceAction, NotificationResourceAction,
+        PermissionResourceAction, RequestResourceAction, Resource, ResourceAction, ResourceId,
+        SystemResourceAction, UserResourceAction, ValidationMethodResourceTarget,
     },
     CanisterMethod,
 };
@@ -23,12 +22,10 @@ impl From<station_api::ResourceDTO> for Resource {
             }
             station_api::ResourceDTO::UserGroup(action) => Resource::UserGroup(action.into()),
             station_api::ResourceDTO::AddressBook(action) => Resource::AddressBook(action.into()),
-            station_api::ResourceDTO::ChangeCanister(action) => {
-                Resource::ChangeCanister(action.into())
-            }
             station_api::ResourceDTO::ExternalCanister(action) => {
                 Resource::ExternalCanister(action.into())
             }
+            station_api::ResourceDTO::Notification(action) => Resource::Notification(action.into()),
             station_api::ResourceDTO::Request(action) => Resource::Request(action.into()),
             station_api::ResourceDTO::System(action) => Resource::System(action.into()),
         }
@@ -46,12 +43,10 @@ impl From<Resource> for station_api::ResourceDTO {
             }
             Resource::UserGroup(action) => station_api::ResourceDTO::UserGroup(action.into()),
             Resource::AddressBook(action) => station_api::ResourceDTO::AddressBook(action.into()),
-            Resource::ChangeCanister(action) => {
-                station_api::ResourceDTO::ChangeCanister(action.into())
-            }
             Resource::ExternalCanister(action) => {
                 station_api::ResourceDTO::ExternalCanister(action.into())
             }
+            Resource::Notification(action) => station_api::ResourceDTO::Notification(action.into()),
             Resource::Request(action) => station_api::ResourceDTO::Request(action.into()),
             Resource::System(action) => station_api::ResourceDTO::System(action.into()),
         }
@@ -192,6 +187,7 @@ impl From<station_api::SystemResourceActionDTO> for SystemResourceAction {
             station_api::SystemResourceActionDTO::ManageSystemInfo => {
                 SystemResourceAction::ManageSystemInfo
             }
+            station_api::SystemResourceActionDTO::Upgrade => SystemResourceAction::Upgrade,
         }
     }
 }
@@ -206,101 +202,28 @@ impl From<SystemResourceAction> for station_api::SystemResourceActionDTO {
             SystemResourceAction::ManageSystemInfo => {
                 station_api::SystemResourceActionDTO::ManageSystemInfo
             }
+            SystemResourceAction::Upgrade => station_api::SystemResourceActionDTO::Upgrade,
         }
     }
 }
 
-impl From<station_api::ChangeCanisterResourceActionDTO> for ChangeCanisterResourceAction {
-    fn from(_: station_api::ChangeCanisterResourceActionDTO) -> Self {
-        ChangeCanisterResourceAction::Create
-    }
-}
-
-impl From<ChangeCanisterResourceAction> for station_api::ChangeCanisterResourceActionDTO {
-    fn from(_: ChangeCanisterResourceAction) -> Self {
-        station_api::ChangeCanisterResourceActionDTO::Create
-    }
-}
-
-impl From<station_api::CreateExternalCanisterResourceTargetDTO>
-    for CreateExternalCanisterResourceTarget
-{
-    fn from(action: station_api::CreateExternalCanisterResourceTargetDTO) -> Self {
+impl From<ExternalCanisterId> for station_api::ExternalCanisterIdDTO {
+    fn from(action: ExternalCanisterId) -> Self {
         match action {
-            station_api::CreateExternalCanisterResourceTargetDTO::Any => {
-                CreateExternalCanisterResourceTarget::Any
+            ExternalCanisterId::Any => station_api::ExternalCanisterIdDTO::Any,
+            ExternalCanisterId::Canister(canister_id) => {
+                station_api::ExternalCanisterIdDTO::Canister(canister_id)
             }
         }
     }
 }
 
-impl From<CreateExternalCanisterResourceTarget>
-    for station_api::CreateExternalCanisterResourceTargetDTO
-{
-    fn from(action: CreateExternalCanisterResourceTarget) -> Self {
+impl From<station_api::ExternalCanisterIdDTO> for ExternalCanisterId {
+    fn from(action: station_api::ExternalCanisterIdDTO) -> Self {
         match action {
-            CreateExternalCanisterResourceTarget::Any => {
-                station_api::CreateExternalCanisterResourceTargetDTO::Any
-            }
-        }
-    }
-}
-
-impl From<station_api::ChangeExternalCanisterResourceTargetDTO>
-    for ChangeExternalCanisterResourceTarget
-{
-    fn from(action: station_api::ChangeExternalCanisterResourceTargetDTO) -> Self {
-        match action {
-            station_api::ChangeExternalCanisterResourceTargetDTO::Any => {
-                ChangeExternalCanisterResourceTarget::Any
-            }
-            station_api::ChangeExternalCanisterResourceTargetDTO::Canister(canister_id) => {
-                ChangeExternalCanisterResourceTarget::Canister(canister_id)
-            }
-        }
-    }
-}
-
-impl From<ChangeExternalCanisterResourceTarget>
-    for station_api::ChangeExternalCanisterResourceTargetDTO
-{
-    fn from(action: ChangeExternalCanisterResourceTarget) -> Self {
-        match action {
-            ChangeExternalCanisterResourceTarget::Any => {
-                station_api::ChangeExternalCanisterResourceTargetDTO::Any
-            }
-            ChangeExternalCanisterResourceTarget::Canister(canister_id) => {
-                station_api::ChangeExternalCanisterResourceTargetDTO::Canister(canister_id)
-            }
-        }
-    }
-}
-
-impl From<station_api::ReadExternalCanisterResourceTargetDTO>
-    for ReadExternalCanisterResourceTarget
-{
-    fn from(action: station_api::ReadExternalCanisterResourceTargetDTO) -> Self {
-        match action {
-            station_api::ReadExternalCanisterResourceTargetDTO::Any => {
-                ReadExternalCanisterResourceTarget::Any
-            }
-            station_api::ReadExternalCanisterResourceTargetDTO::Canister(canister_id) => {
-                ReadExternalCanisterResourceTarget::Canister(canister_id)
-            }
-        }
-    }
-}
-
-impl From<ReadExternalCanisterResourceTarget>
-    for station_api::ReadExternalCanisterResourceTargetDTO
-{
-    fn from(action: ReadExternalCanisterResourceTarget) -> Self {
-        match action {
-            ReadExternalCanisterResourceTarget::Any => {
-                station_api::ReadExternalCanisterResourceTargetDTO::Any
-            }
-            ReadExternalCanisterResourceTarget::Canister(canister_id) => {
-                station_api::ReadExternalCanisterResourceTargetDTO::Canister(canister_id)
+            station_api::ExternalCanisterIdDTO::Any => ExternalCanisterId::Any,
+            station_api::ExternalCanisterIdDTO::Canister(canister_id) => {
+                ExternalCanisterId::Canister(canister_id)
             }
         }
     }
@@ -309,11 +232,17 @@ impl From<ReadExternalCanisterResourceTarget>
 impl From<station_api::ExternalCanisterResourceActionDTO> for ExternalCanisterResourceAction {
     fn from(action: station_api::ExternalCanisterResourceActionDTO) -> Self {
         match action {
-            station_api::ExternalCanisterResourceActionDTO::Create(target) => {
-                ExternalCanisterResourceAction::Create(target.into())
+            station_api::ExternalCanisterResourceActionDTO::List => {
+                ExternalCanisterResourceAction::List
+            }
+            station_api::ExternalCanisterResourceActionDTO::Create => {
+                ExternalCanisterResourceAction::Create
             }
             station_api::ExternalCanisterResourceActionDTO::Change(target) => {
                 ExternalCanisterResourceAction::Change(target.into())
+            }
+            station_api::ExternalCanisterResourceActionDTO::Fund(target) => {
+                ExternalCanisterResourceAction::Fund(target.into())
             }
             station_api::ExternalCanisterResourceActionDTO::Call(target) => {
                 ExternalCanisterResourceAction::Call(target.into())
@@ -328,8 +257,14 @@ impl From<station_api::ExternalCanisterResourceActionDTO> for ExternalCanisterRe
 impl From<ExternalCanisterResourceAction> for station_api::ExternalCanisterResourceActionDTO {
     fn from(action: ExternalCanisterResourceAction) -> Self {
         match action {
-            ExternalCanisterResourceAction::Create(target) => {
-                station_api::ExternalCanisterResourceActionDTO::Create(target.into())
+            ExternalCanisterResourceAction::List => {
+                station_api::ExternalCanisterResourceActionDTO::List
+            }
+            ExternalCanisterResourceAction::Create => {
+                station_api::ExternalCanisterResourceActionDTO::Create
+            }
+            ExternalCanisterResourceAction::Fund(target) => {
+                station_api::ExternalCanisterResourceActionDTO::Fund(target.into())
             }
             ExternalCanisterResourceAction::Change(target) => {
                 station_api::ExternalCanisterResourceActionDTO::Change(target.into())
@@ -339,6 +274,28 @@ impl From<ExternalCanisterResourceAction> for station_api::ExternalCanisterResou
             }
             ExternalCanisterResourceAction::Read(target) => {
                 station_api::ExternalCanisterResourceActionDTO::Read(target.into())
+            }
+        }
+    }
+}
+
+impl From<station_api::NotificationResourceActionDTO> for NotificationResourceAction {
+    fn from(action: station_api::NotificationResourceActionDTO) -> Self {
+        match action {
+            station_api::NotificationResourceActionDTO::List => NotificationResourceAction::List,
+            station_api::NotificationResourceActionDTO::Update(id) => {
+                NotificationResourceAction::Update(id.into())
+            }
+        }
+    }
+}
+
+impl From<NotificationResourceAction> for station_api::NotificationResourceActionDTO {
+    fn from(action: NotificationResourceAction) -> Self {
+        match action {
+            NotificationResourceAction::List => station_api::NotificationResourceActionDTO::List,
+            NotificationResourceAction::Update(id) => {
+                station_api::NotificationResourceActionDTO::Update(id.into())
             }
         }
     }

@@ -22,7 +22,7 @@ export const requestSpecifiersIncludedRules = (): Record<
   [RequestSpecifierEnum.AddRequestPolicy]: [...defaultRequestPolicyRules],
   [RequestSpecifierEnum.EditRequestPolicy]: [...defaultRequestPolicyRules],
   [RequestSpecifierEnum.RemoveRequestPolicy]: [...defaultRequestPolicyRules],
-  [RequestSpecifierEnum.ChangeCanister]: [...defaultRequestPolicyRules],
+  [RequestSpecifierEnum.SystemUpgrade]: [...defaultRequestPolicyRules],
   [RequestSpecifierEnum.AddUserGroup]: [...defaultRequestPolicyRules],
   [RequestSpecifierEnum.EditUserGroup]: [...defaultRequestPolicyRules],
   [RequestSpecifierEnum.RemoveUserGroup]: [...defaultRequestPolicyRules],
@@ -37,5 +37,6 @@ export const requestSpecifiersIncludedRules = (): Record<
   [RequestSpecifierEnum.ChangeExternalCanister]: [...defaultRequestPolicyRules],
   [RequestSpecifierEnum.CreateExternalCanister]: [...defaultRequestPolicyRules],
   [RequestSpecifierEnum.CallExternalCanister]: [...defaultRequestPolicyRules],
+  [RequestSpecifierEnum.FundExternalCanister]: [...defaultRequestPolicyRules],
   [RequestSpecifierEnum.SetDisasterRecovery]: [...defaultRequestPolicyRules],
 });

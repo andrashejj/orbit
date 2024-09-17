@@ -3,8 +3,9 @@ use crate::{
         authorization::Authorization,
         generate_uuid_v4,
         ic_cdk::next_time,
+        read_system_info,
         utils::{paginated_items, retain_accessible_resources, PaginatedData, PaginatedItemsArgs},
-        CallContext, ACCOUNT_BALANCE_FRESHNESS_IN_MS,
+        write_system_info, CallContext, ACCOUNT_BALANCE_FRESHNESS_IN_MS,
     },
     errors::AccountError,
     factories::blockchains::BlockchainApiFactory,
@@ -14,7 +15,8 @@ use crate::{
         request_specifier::RequestSpecifier,
         resource::{AccountResourceAction, Resource, ResourceId, ResourceIds},
         Account, AccountBalance, AccountCallerPrivileges, AccountId, AddAccountOperationInput,
-        AddRequestPolicyOperationInput, EditAccountOperationInput, EditPermissionOperationInput,
+        AddRequestPolicyOperationInput, Blockchain, BlockchainStandard, CycleObtainStrategy,
+        EditAccountOperationInput, EditPermissionOperationInput,
     },
     repositories::{AccountRepository, AccountWhereClause, ACCOUNT_REPOSITORY},
     services::{
@@ -29,6 +31,8 @@ use orbit_essentials::{
 use station_api::{AccountBalanceDTO, FetchAccountBalancesInput, ListAccountsInput};
 use std::sync::Arc;
 use uuid::Uuid;
+
+use super::SYSTEM_SERVICE;
 
 lazy_static! {
     pub static ref ACCOUNT_SERVICE: Arc<AccountService> = Arc::new(AccountService::new(
@@ -120,17 +124,25 @@ impl AccountService {
     }
 
     /// Creates a new account.
-    pub async fn create_account(&self, input: AddAccountOperationInput) -> ServiceResult<Account> {
-        if self
-            .account_repository
-            .find_account_id_by_name(&input.name)
-            .is_some()
-        {
+    pub async fn create_account(
+        &self,
+        input: AddAccountOperationInput,
+        with_account_id: Option<UUID>,
+    ) -> ServiceResult<Account> {
+        if self.account_repository.find_by_name(&input.name).is_some() {
             Err(AccountError::AccountNameAlreadyExists)?
         }
 
-        let uuid = generate_uuid_v4().await;
+        let uuid = match with_account_id {
+            Some(id) => Uuid::from_bytes(id),
+            None => generate_uuid_v4().await,
+        };
         let key = Account::key(*uuid.as_bytes());
+        if self.account_repository.get(&key).is_some() {
+            Err(AccountError::ValidationError {
+                info: format!("Account with id {} already exists", uuid.hyphenated()),
+            })?
+        }
         let blockchain_api =
             BlockchainApiFactory::build(&input.blockchain.clone(), &input.standard.clone())?;
         let mut new_account =
@@ -168,28 +180,28 @@ impl AccountService {
 
         // adds the associated transfer policy based on the transfer criteria
         if let Some(policy_rule) = &input.transfer_request_policy {
-            let transfer_request_policy = self
-                .request_policy_service
-                .add_request_policy(AddRequestPolicyOperationInput {
-                    specifier: RequestSpecifier::Transfer(ResourceIds::Ids(vec![*uuid.as_bytes()])),
-                    rule: policy_rule.clone(),
-                })
-                .await?;
+            let transfer_request_policy =
+                self.request_policy_service
+                    .add_request_policy(AddRequestPolicyOperationInput {
+                        specifier: RequestSpecifier::Transfer(ResourceIds::Ids(vec![
+                            *uuid.as_bytes()
+                        ])),
+                        rule: policy_rule.clone(),
+                    })?;
 
             new_account.transfer_request_policy_id = Some(transfer_request_policy.id);
         }
 
         // adds the associated edit policy based on the edit criteria
         if let Some(policy_rule) = &input.configs_request_policy {
-            let configs_request_policy = self
-                .request_policy_service
-                .add_request_policy(AddRequestPolicyOperationInput {
-                    specifier: RequestSpecifier::EditAccount(ResourceIds::Ids(vec![
-                        *uuid.as_bytes()
-                    ])),
-                    rule: policy_rule.to_owned(),
-                })
-                .await?;
+            let configs_request_policy =
+                self.request_policy_service
+                    .add_request_policy(AddRequestPolicyOperationInput {
+                        specifier: RequestSpecifier::EditAccount(ResourceIds::Ids(vec![
+                            *uuid.as_bytes()
+                        ])),
+                        rule: policy_rule.to_owned(),
+                    })?;
 
             new_account.configs_request_policy_id = Some(configs_request_policy.id);
         }
@@ -208,8 +220,7 @@ impl AccountService {
                 resource: Resource::Account(AccountResourceAction::Read(ResourceId::Id(
                     *uuid.as_bytes(),
                 ))),
-            })
-            .await?;
+            })?;
 
         self.permission_service
             .edit_permission(EditPermissionOperationInput {
@@ -219,8 +230,7 @@ impl AccountService {
                 resource: Resource::Account(AccountResourceAction::Update(ResourceId::Id(
                     *uuid.as_bytes(),
                 ))),
-            })
-            .await?;
+            })?;
 
         self.permission_service
             .edit_permission(EditPermissionOperationInput {
@@ -230,8 +240,33 @@ impl AccountService {
                 resource: Resource::Account(AccountResourceAction::Transfer(ResourceId::Id(
                     *uuid.as_bytes(),
                 ))),
-            })
-            .await?;
+            })?;
+
+        if SYSTEM_SERVICE.is_healthy() {
+            let mut system_info = read_system_info();
+
+            // if this is the first account created, and there is no cycle minting account set, set this account as the cycle minting account
+            if system_info.get_cycle_obtain_strategy() == &CycleObtainStrategy::Disabled
+                && ACCOUNT_REPOSITORY.len() == 1
+                && matches!(new_account.blockchain, Blockchain::InternetComputer)
+                && new_account.standard == BlockchainStandard::Native
+                && new_account.symbol == "ICP"
+            {
+                ic_cdk::println!("Setting cycle minting account to {}", uuid);
+
+                system_info.set_cycle_obtain_strategy(CycleObtainStrategy::MintFromNativeToken {
+                    account_id: *uuid.as_bytes(),
+                });
+                write_system_info(system_info);
+
+                #[cfg(target_arch = "wasm32")]
+                crate::services::SYSTEM_SERVICE.set_fund_manager_obtain_cycles(
+                    &CycleObtainStrategy::MintFromNativeToken {
+                        account_id: new_account.id,
+                    },
+                );
+            }
+        }
 
         Ok(new_account)
     }
@@ -247,7 +282,7 @@ impl AccountService {
 
             if self
                 .account_repository
-                .find_account_id_by_name(name)
+                .find_by_name(name)
                 .is_some_and(|id| id != account.id)
             {
                 Err(AccountError::AccountNameAlreadyExists)?
@@ -271,23 +306,19 @@ impl AccountService {
         };
 
         if let Some(transfer_request_policy_input) = input.transfer_request_policy {
-            self.request_policy_service
-                .handle_policy_change(
-                    RequestSpecifier::Transfer(ResourceIds::Ids(vec![account.id])),
-                    transfer_request_policy_input,
-                    &mut account.transfer_request_policy_id,
-                )
-                .await?;
+            self.request_policy_service.handle_policy_change(
+                RequestSpecifier::Transfer(ResourceIds::Ids(vec![account.id])),
+                transfer_request_policy_input,
+                &mut account.transfer_request_policy_id,
+            )?;
         }
 
         if let Some(configs_request_policy_input) = input.configs_request_policy {
-            self.request_policy_service
-                .handle_policy_change(
-                    RequestSpecifier::EditAccount(ResourceIds::Ids(vec![account.id])),
-                    configs_request_policy_input,
-                    &mut account.configs_request_policy_id,
-                )
-                .await?;
+            self.request_policy_service.handle_policy_change(
+                RequestSpecifier::EditAccount(ResourceIds::Ids(vec![account.id])),
+                configs_request_policy_input,
+                &mut account.configs_request_policy_id,
+            )?;
         }
 
         account.validate()?;
@@ -306,8 +337,7 @@ impl AccountService {
                     resource: Resource::Account(AccountResourceAction::Read(ResourceId::Id(
                         account.id,
                     ))),
-                })
-                .await?;
+                })?;
         }
 
         if let Some(configs_permission) = input.configs_permission {
@@ -319,8 +349,7 @@ impl AccountService {
                     resource: Resource::Account(AccountResourceAction::Update(ResourceId::Id(
                         account.id,
                     ))),
-                })
-                .await?;
+                })?;
         }
 
         if let Some(transfer_permission) = input.transfer_permission {
@@ -332,8 +361,7 @@ impl AccountService {
                     resource: Resource::Account(AccountResourceAction::Transfer(ResourceId::Id(
                         account.id,
                     ))),
-                })
-                .await?;
+                })?;
         }
 
         Ok(account)
@@ -468,7 +496,7 @@ mod tests {
             },
         };
 
-        let result = ctx.service.create_account(operation.input).await;
+        let result = ctx.service.create_account(operation.input, None).await;
 
         assert!(result.is_ok());
     }
@@ -499,7 +527,7 @@ mod tests {
             },
         };
 
-        let result = ctx.service.create_account(operation.input).await;
+        let result = ctx.service.create_account(operation.input, None).await;
 
         assert!(result.is_err());
     }
@@ -522,53 +550,100 @@ mod tests {
             transfer_request_policy: Some(RequestPolicyRule::AutoApproved),
         };
 
-        assert!(ctx.service.create_account(base_input.clone()).await.is_ok());
+        assert!(ctx
+            .service
+            .create_account(base_input.clone(), None)
+            .await
+            .is_ok());
 
         ctx.service
-            .create_account(AddAccountOperationInput {
-                read_permission: Allow::users(vec![[5; 16]]),
-                ..base_input.clone()
-            })
+            .create_account(
+                AddAccountOperationInput {
+                    read_permission: Allow::users(vec![[5; 16]]),
+                    ..base_input.clone()
+                },
+                None,
+            )
             .await
             .expect_err("read_permission should be invalid");
 
         ctx.service
-            .create_account(AddAccountOperationInput {
-                configs_permission: Allow::users(vec![[5; 16]]),
-                ..base_input.clone()
-            })
+            .create_account(
+                AddAccountOperationInput {
+                    configs_permission: Allow::users(vec![[5; 16]]),
+                    ..base_input.clone()
+                },
+                None,
+            )
             .await
             .expect_err("configs_permission should be invalid");
 
         ctx.service
-            .create_account(AddAccountOperationInput {
-                transfer_permission: Allow::users(vec![[5; 16]]),
-                ..base_input.clone()
-            })
+            .create_account(
+                AddAccountOperationInput {
+                    transfer_permission: Allow::users(vec![[5; 16]]),
+                    ..base_input.clone()
+                },
+                None,
+            )
             .await
             .expect_err("transfer_permission should be invalid");
 
         ctx.service
-            .create_account(AddAccountOperationInput {
-                configs_request_policy: Some(RequestPolicyRule::Quorum(
-                    UserSpecifier::Id(vec![[5; 16]]),
-                    1,
-                )),
-                ..base_input.clone()
-            })
+            .create_account(
+                AddAccountOperationInput {
+                    configs_request_policy: Some(RequestPolicyRule::Quorum(
+                        UserSpecifier::Id(vec![[5; 16]]),
+                        1,
+                    )),
+                    ..base_input.clone()
+                },
+                None,
+            )
             .await
             .expect_err("configs_request_policy should be invalid");
 
         ctx.service
-            .create_account(AddAccountOperationInput {
-                transfer_request_policy: Some(RequestPolicyRule::Quorum(
-                    UserSpecifier::Id(vec![[5; 16]]),
-                    1,
-                )),
-                ..base_input.clone()
-            })
+            .create_account(
+                AddAccountOperationInput {
+                    transfer_request_policy: Some(RequestPolicyRule::Quorum(
+                        UserSpecifier::Id(vec![[5; 16]]),
+                        1,
+                    )),
+                    ..base_input.clone()
+                },
+                None,
+            )
             .await
             .expect_err("transfer_request_policy should be invalid");
+    }
+
+    #[tokio::test]
+    async fn add_account_with_same_id_should_fail() {
+        let ctx = setup();
+        let account = mock_account();
+
+        ctx.repository.insert(account.to_key(), account.clone());
+
+        let input = AddAccountOperationInput {
+            name: "foo2".to_string(),
+            blockchain: Blockchain::InternetComputer,
+            standard: BlockchainStandard::Native,
+            metadata: Metadata::default(),
+            read_permission: Allow::users(vec![ctx.caller_user.id]),
+            configs_permission: Allow::users(vec![ctx.caller_user.id]),
+            transfer_permission: Allow::users(vec![ctx.caller_user.id]),
+            configs_request_policy: Some(RequestPolicyRule::AutoApproved),
+            transfer_request_policy: Some(RequestPolicyRule::AutoApproved),
+        };
+
+        let result = ctx.service.create_account(input, Some(account.id)).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_json_string().contains(&format!(
+            "Account with id {} already exists",
+            Uuid::from_bytes(account.id).hyphenated()
+        )));
     }
 
     #[tokio::test]
@@ -641,7 +716,7 @@ mod tests {
             },
         };
 
-        let result = ctx.service.create_account(operation.input).await;
+        let result = ctx.service.create_account(operation.input, None).await;
 
         assert!(result.is_err());
     }

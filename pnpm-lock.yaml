@@ -69,20 +69,20 @@ importers:
   apps/wallet:
     dependencies:
       '@dfinity/agent':
-        specifier: 1.3.0
-        version: 1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)
+        specifier: 1.4.0
+        version: 1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0)
       '@dfinity/auth-client':
-        specifier: 1.3.0
-        version: 1.3.0(@dfinity/agent@1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0))(@dfinity/identity@1.3.0(@dfinity/agent@1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)(@peculiar/webcrypto@1.5.0))(@dfinity/principal@1.3.0)
+        specifier: 1.4.0
+        version: 1.4.0(@dfinity/agent@1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0))(@dfinity/identity@1.4.0(@dfinity/agent@1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0)(@peculiar/webcrypto@1.5.0))(@dfinity/principal@1.4.0)
       '@dfinity/candid':
-        specifier: 1.3.0
-        version: 1.3.0(@dfinity/principal@1.3.0)
+        specifier: 1.4.0
+        version: 1.4.0(@dfinity/principal@1.4.0)
       '@dfinity/identity':
-        specifier: 1.3.0
-        version: 1.3.0(@dfinity/agent@1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)(@peculiar/webcrypto@1.5.0)
+        specifier: 1.4.0
+        version: 1.4.0(@dfinity/agent@1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0)(@peculiar/webcrypto@1.5.0)
       '@dfinity/principal':
-        specifier: 1.3.0
-        version: 1.3.0
+        specifier: 1.4.0
+        version: 1.4.0
       '@mdi/font':
         specifier: 7.4.47
         version: 7.4.47
@@ -800,41 +800,23 @@ packages:
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
     engines: {node: '>=12'}
 
-  '@dfinity/agent@1.3.0':
-    resolution: {integrity: sha512-gFc2CqjWURv/Th+vxwHIb7Y39TpRZccjyRm8c51LtyAGLYSpSwJDWbzM/y66h++DSSc3A+1DjN/dRT+6ik3xLw==}
-    peerDependencies:
-      '@dfinity/candid': ^1.3.0
-      '@dfinity/principal': ^1.3.0
-
   '@dfinity/agent@1.4.0':
     resolution: {integrity: sha512-/zgGajZpxtbu+kLXtFx2e9V2+HbMUjrtGWx9ZEwtVwhVxKgVi/2kGQpFRPEDFJ461V7wdTwCig4OkMxVU4shTw==}
     peerDependencies:
       '@dfinity/candid': ^1.4.0
       '@dfinity/principal': ^1.4.0
 
-  '@dfinity/auth-client@1.3.0':
-    resolution: {integrity: sha512-/1Xn+acHckLh9GlImBRsIEjej0nbD+B0hsoOM8gyimrRrcoxqlSwn+rzjlR2fbVf++rTRRwsQgShG/gfCEXJig==}
+  '@dfinity/auth-client@1.4.0':
+    resolution: {integrity: sha512-9ImeOAw61SQvHJ+w4RHIuKKUL2xAQDLoce+JhmH3DbJuVvNbZIM5xMW8gHTZVlXaMw3Vhip+a1DPJIGy95r9pA==}
     peerDependencies:
-      '@dfinity/agent': ^1.3.0
-      '@dfinity/identity': ^1.3.0
-      '@dfinity/principal': ^1.3.0
-
-  '@dfinity/candid@1.3.0':
-    resolution: {integrity: sha512-tt5NYfpv8C+3iKS3Awbi+NAIxjwjIRUOLT+1ys/xpA+6DNEqwgfU8WZu0+bKnf/xlASCyJXUmoMzQ6I01GBp9A==}
-    peerDependencies:
-      '@dfinity/principal': ^1.3.0
+      '@dfinity/agent': ^1.4.0
+      '@dfinity/identity': ^1.4.0
+      '@dfinity/principal': ^1.4.0
 
   '@dfinity/candid@1.4.0':
     resolution: {integrity: sha512-PsTJVn63ZM4A/6Xs5coI0zMFevSwJ8hcyh38LdH/92n6wi9UOTis1yc4qL5MZvvRCUAD0c3rVjELL+49E9sPyA==}
     peerDependencies:
       '@dfinity/principal': ^1.4.0
-
-  '@dfinity/identity@1.3.0':
-    resolution: {integrity: sha512-DAqb+dYV20wqJBfMv6RFEyDNPg8FSUVPjK3kXP/gXEDM+w2Viq4/oQdMqm0lWTK8t4+TuxvUS74ULAS7wCYuVQ==}
-    peerDependencies:
-      '@dfinity/agent': ^1.3.0
-      '@dfinity/principal': ^1.3.0
-      '@peculiar/webcrypto': ^1.4.0
 
   '@dfinity/identity@1.4.0':
     resolution: {integrity: sha512-4WmMsQSuzfWXmm4s+0FYGbFiQcMGE88Ztg6yFq7aTMtRWuAjhz66Dy1+jRCrXxsoxvDdUvPzsyjkOSpr1AuUYQ==}
@@ -842,9 +824,6 @@ packages:
       '@dfinity/agent': ^1.4.0
       '@dfinity/principal': ^1.4.0
       '@peculiar/webcrypto': ^1.4.0
-
-  '@dfinity/principal@1.3.0':
-    resolution: {integrity: sha512-04Ly9/VxztgmSk3LeUv1H+aA/8zCfed5gzgydVKBv9U0pk2lcCjUOMhv3G+1UCUSd8GwzrWaSwIsrzrAcHZm/g==}
 
   '@dfinity/principal@1.4.0':
     resolution: {integrity: sha512-SuTBVlc71ub89ji0WN5/T100zUG2uIMn5x4+We4vS4nJ0R3/Xt89XJsHepjd5SQTSQPOvP7eQ+S8cQKWRz/RkA==}
@@ -1753,8 +1732,8 @@ packages:
     resolution: {integrity: sha512-kNOjDqAh7px0XWNI+4QbzoiR/nTkHAWNud2uvnJquD1/x5a7EQZMJT0AczqK0Qn67oY/TTQ1LbUKajZpp3I9tQ==}
     engines: {node: '>=8.0.0'}
 
-  axios@1.7.2:
-    resolution: {integrity: sha512-2A8QhOMrbomlDuiLeK9XibIBzuHeRcqqNOHp0Cyp5EoJ1IFDh+XZH3A6BkXtv0K4gFGCI0Y4BM7B1wOEi0Rmgw==}
+  axios@1.7.7:
+    resolution: {integrity: sha512-S4kL7XrjgBmvdGut0sN3yJxqYzrDOnivkBiN0OFs6hLiUam3UPvswUo0kqGyhqUZGEOytHyumEdXsAkgCOUf3Q==}
 
   babel-plugin-const-enum@1.2.0:
     resolution: {integrity: sha512-o1m/6iyyFnp9MRsK1dHF3bneqyf3AlM2q3A/YbgQr2pCat6B6XJVDv2TXqzfY2RYUi4mak6WAksSBPlyYGx9dg==}
@@ -4450,17 +4429,6 @@ snapshots:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
 
-  '@dfinity/agent@1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)':
-    dependencies:
-      '@dfinity/candid': 1.3.0(@dfinity/principal@1.3.0)
-      '@dfinity/principal': 1.3.0
-      '@noble/curves': 1.4.2
-      '@noble/hashes': 1.4.0
-      base64-arraybuffer: 0.2.0
-      borc: 2.1.2
-      buffer: 6.0.3
-      simple-cbor: 0.4.1
-
   '@dfinity/agent@1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0)':
     dependencies:
       '@dfinity/candid': 1.4.0(@dfinity/principal@1.4.0)
@@ -4472,29 +4440,16 @@ snapshots:
       buffer: 6.0.3
       simple-cbor: 0.4.1
 
-  '@dfinity/auth-client@1.3.0(@dfinity/agent@1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0))(@dfinity/identity@1.3.0(@dfinity/agent@1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)(@peculiar/webcrypto@1.5.0))(@dfinity/principal@1.3.0)':
+  '@dfinity/auth-client@1.4.0(@dfinity/agent@1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0))(@dfinity/identity@1.4.0(@dfinity/agent@1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0)(@peculiar/webcrypto@1.5.0))(@dfinity/principal@1.4.0)':
     dependencies:
-      '@dfinity/agent': 1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)
-      '@dfinity/identity': 1.3.0(@dfinity/agent@1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)(@peculiar/webcrypto@1.5.0)
-      '@dfinity/principal': 1.3.0
+      '@dfinity/agent': 1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0)
+      '@dfinity/identity': 1.4.0(@dfinity/agent@1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0)(@peculiar/webcrypto@1.5.0)
+      '@dfinity/principal': 1.4.0
       idb: 7.1.1
-
-  '@dfinity/candid@1.3.0(@dfinity/principal@1.3.0)':
-    dependencies:
-      '@dfinity/principal': 1.3.0
 
   '@dfinity/candid@1.4.0(@dfinity/principal@1.4.0)':
     dependencies:
       '@dfinity/principal': 1.4.0
-
-  '@dfinity/identity@1.3.0(@dfinity/agent@1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)(@peculiar/webcrypto@1.5.0)':
-    dependencies:
-      '@dfinity/agent': 1.3.0(@dfinity/candid@1.3.0(@dfinity/principal@1.3.0))(@dfinity/principal@1.3.0)
-      '@dfinity/principal': 1.3.0
-      '@noble/curves': 1.4.2
-      '@noble/hashes': 1.4.0
-      '@peculiar/webcrypto': 1.5.0
-      borc: 2.1.2
 
   '@dfinity/identity@1.4.0(@dfinity/agent@1.4.0(@dfinity/candid@1.4.0(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0))(@dfinity/principal@1.4.0)(@peculiar/webcrypto@1.5.0)':
     dependencies:
@@ -4504,10 +4459,6 @@ snapshots:
       '@noble/hashes': 1.4.0
       '@peculiar/webcrypto': 1.5.0
       borc: 2.1.2
-
-  '@dfinity/principal@1.3.0':
-    dependencies:
-      '@noble/hashes': 1.4.0
 
   '@dfinity/principal@1.4.0':
     dependencies:
@@ -5419,7 +5370,7 @@ snapshots:
 
   atomic-sleep@1.0.0: {}
 
-  axios@1.7.2:
+  axios@1.7.7:
     dependencies:
       follow-redirects: 1.15.6
       form-data: 4.0.0
@@ -6502,7 +6453,7 @@ snapshots:
       '@yarnpkg/lockfile': 1.1.0
       '@yarnpkg/parsers': 3.0.0-rc.46
       '@zkochan/js-yaml': 0.0.6
-      axios: 1.7.2
+      axios: 1.7.7
       chalk: 4.1.2
       cli-cursor: 3.1.0
       cli-spinners: 2.6.1
@@ -6554,7 +6505,7 @@ snapshots:
       '@yarnpkg/lockfile': 1.1.0
       '@yarnpkg/parsers': 3.0.0-rc.46
       '@zkochan/js-yaml': 0.0.6
-      axios: 1.7.2
+      axios: 1.7.7
       chalk: 4.1.2
       cli-cursor: 3.1.0
       cli-spinners: 2.6.1

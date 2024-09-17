@@ -8,9 +8,10 @@ use crate::{
         resource::Resource, RequestPolicy,
     },
 };
+use candid::Principal;
 use ic_stable_structures::{memory_manager::VirtualMemory, StableBTreeMap};
 use lazy_static::lazy_static;
-use orbit_essentials::repository::{IndexRepository, RefreshIndexMode, Repository};
+use orbit_essentials::repository::{IndexRepository, IndexedRepository, Repository, StableDb};
 use orbit_essentials::types::UUID;
 use std::{cell::RefCell, sync::Arc};
 
@@ -34,15 +35,35 @@ pub struct RequestPolicyRepository {
     resource_index: RequestPolicyResourceIndexRepository,
 }
 
-impl Repository<UUID, RequestPolicy> for RequestPolicyRepository {
-    fn list(&self) -> Vec<RequestPolicy> {
-        DB.with(|m| m.borrow().iter().map(|(_, v)| v).collect())
+impl StableDb<UUID, RequestPolicy, VirtualMemory<Memory>> for RequestPolicyRepository {
+    fn with_db<F, R>(f: F) -> R
+    where
+        F: FnOnce(&mut StableBTreeMap<UUID, RequestPolicy, VirtualMemory<Memory>>) -> R,
+    {
+        DB.with(|m| f(&mut m.borrow_mut()))
+    }
+}
+
+impl IndexedRepository<UUID, RequestPolicy, VirtualMemory<Memory>> for RequestPolicyRepository {
+    fn remove_entry_indexes(&self, entry: &RequestPolicy) {
+        entry.to_index_for_resource().iter().for_each(|index| {
+            self.resource_index.remove(index);
+        });
     }
 
-    fn get(&self, key: &UUID) -> Option<RequestPolicy> {
-        DB.with(|m| m.borrow().get(key))
+    fn add_entry_indexes(&self, entry: &RequestPolicy) {
+        entry.to_index_for_resource().into_iter().for_each(|index| {
+            self.resource_index.insert(index);
+        });
     }
 
+    /// Clears the indexes of the repository.
+    fn clear_indexes(&self) {
+        self.resource_index.clear();
+    }
+}
+
+impl Repository<UUID, RequestPolicy, VirtualMemory<Memory>> for RequestPolicyRepository {
     fn insert(&self, key: UUID, value: RequestPolicy) -> Option<RequestPolicy> {
         DB.with(|m| {
             let prev = m.borrow_mut().insert(key, value.clone());
@@ -54,14 +75,7 @@ impl Repository<UUID, RequestPolicy> for RequestPolicyRepository {
                     .for_each(|metric| metric.borrow_mut().sum(&value, prev.as_ref()))
             });
 
-            self.resource_index
-                .refresh_index_on_modification(RefreshIndexMode::List {
-                    previous: prev
-                        .clone()
-                        .map(|prev| prev.to_index_for_resource())
-                        .unwrap_or_default(),
-                    current: value.to_index_for_resource(),
-                });
+            self.save_entry_indexes(&value, prev.as_ref());
 
             prev
         })
@@ -78,22 +92,12 @@ impl Repository<UUID, RequestPolicy> for RequestPolicyRepository {
                         .iter()
                         .for_each(|metric| metric.borrow_mut().sub(prev))
                 });
-            }
 
-            self.resource_index
-                .refresh_index_on_modification(RefreshIndexMode::CleanupList {
-                    current: prev
-                        .clone()
-                        .map(|prev| prev.to_index_for_resource())
-                        .unwrap_or_default(),
-                });
+                self.remove_entry_indexes(prev);
+            }
 
             prev
         })
-    }
-
-    fn len(&self) -> usize {
-        DB.with(|m| m.borrow().len()) as usize
     }
 }
 
@@ -104,6 +108,17 @@ impl RequestPolicyRepository {
             .find_by_criteria(RequestPolicyResourceIndexCriteria { resource });
 
         ids.iter().filter_map(|id| self.get(id)).collect()
+    }
+
+    /// Finds all external canister policies related to the specified canister id.
+    ///
+    /// Includes:
+    ///
+    /// - `Change` related policies.
+    /// - `Call` related policies.
+    pub fn find_external_canister_policies(&self, canister_id: &Principal) -> Vec<UUID> {
+        self.resource_index
+            .find_external_canister_policies(canister_id)
     }
 }
 
@@ -232,5 +247,93 @@ mod tests {
                 policy_id: policy.id,
                 resource: Resource::Account(AccountResourceAction::Create),
             }));
+    }
+}
+
+#[cfg(feature = "canbench")]
+mod benchs {
+    use super::*;
+    use crate::models::{
+        request_specifier::RequestSpecifier,
+        resource::{
+            CallExternalCanisterResourceTarget, ExecutionMethodResourceTarget, ExternalCanisterId,
+            ValidationMethodResourceTarget,
+        },
+        CanisterMethod, RequestPolicyRule,
+    };
+    use canbench_rs::{bench, BenchResult};
+    use uuid::Uuid;
+
+    #[bench(raw)]
+    fn find_500_external_canister_policies_from_50k_dataset() -> BenchResult {
+        // adds 50k policies: 100 different canisters with 10 change policies and 490 call policies each
+        for i in 0..100 {
+            let canister_id = Principal::from_slice(&[i; 29]);
+            let mut policies = Vec::new();
+            for _ in 0..10 {
+                policies.push(RequestPolicy {
+                    id: *Uuid::new_v4().as_bytes(),
+                    rule: RequestPolicyRule::AutoApproved,
+                    specifier: RequestSpecifier::ChangeExternalCanister(
+                        ExternalCanisterId::Canister(canister_id),
+                    ),
+                });
+            }
+
+            for j in 0..90 {
+                policies.push(RequestPolicy {
+                    id: *Uuid::new_v4().as_bytes(),
+                    rule: RequestPolicyRule::AutoApproved,
+                    specifier: RequestSpecifier::CallExternalCanister(
+                        CallExternalCanisterResourceTarget {
+                            validation_method: ValidationMethodResourceTarget::No,
+                            execution_method: ExecutionMethodResourceTarget::ExecutionMethod(
+                                CanisterMethod {
+                                    canister_id,
+                                    method_name: format!("method_{}", j),
+                                },
+                            ),
+                        },
+                    ),
+                });
+            }
+
+            for j in 0..400 {
+                policies.push(RequestPolicy {
+                    id: *Uuid::new_v4().as_bytes(),
+                    rule: RequestPolicyRule::AutoApproved,
+                    specifier: RequestSpecifier::CallExternalCanister(
+                        CallExternalCanisterResourceTarget {
+                            validation_method: ValidationMethodResourceTarget::ValidationMethod(
+                                CanisterMethod {
+                                    canister_id,
+                                    method_name: format!("validate_method_{}", j),
+                                },
+                            ),
+                            execution_method: ExecutionMethodResourceTarget::ExecutionMethod(
+                                CanisterMethod {
+                                    canister_id,
+                                    method_name: format!("method_{}", j),
+                                },
+                            ),
+                        },
+                    ),
+                });
+            }
+
+            for policy in policies {
+                REQUEST_POLICY_REPOSITORY.insert(policy.id, policy);
+            }
+        }
+
+        canbench_rs::bench_fn(|| {
+            let lookup_canister_id = Principal::from_slice(&[30; 29]);
+            let policies =
+                REQUEST_POLICY_REPOSITORY.find_external_canister_policies(&lookup_canister_id);
+
+            if policies.len() != 500 {
+                panic!("Expected 500 policies, got {}", policies.len());
+            }
+        })
     }
 }

@@ -447,8 +447,10 @@ mod tests {
     async fn edit_user_with_existing_name_should_fail() {
         let mut user = mock_user();
         user.name = "Jane Doe".to_string();
+        user.identities = vec![Principal::from_slice(&[1; 29])];
         let mut another_user = mock_user();
         another_user.name = "John Doe".to_string();
+        another_user.identities = vec![Principal::from_slice(&[2; 29])];
 
         USER_REPOSITORY.insert(user.to_key(), user.clone());
         USER_REPOSITORY.insert(another_user.to_key(), another_user.clone());
@@ -561,7 +563,6 @@ mod tests {
                 users: Some(vec![user.id]),
                 resource: Resource::User(UserResourceAction::List),
             })
-            .await
             .unwrap();
         PERMISSION_SERVICE
             .edit_permission(EditPermissionOperationInput {
@@ -570,7 +571,6 @@ mod tests {
                 users: Some(Vec::new()),
                 resource: Resource::User(UserResourceAction::Create),
             })
-            .await
             .unwrap();
 
         let privileges = USER_SERVICE.get_caller_privileges(&ctx).await.unwrap();
@@ -578,5 +578,34 @@ mod tests {
         assert_eq!(privileges.len(), 2);
         assert!(privileges.contains(&UserPrivilege::ListUsers));
         assert!(privileges.contains(&UserPrivilege::AddUser));
+    }
+}
+
+#[cfg(any(test, feature = "canbench"))]
+pub mod user_service_test_utils {
+    use super::*;
+    use crate::models::user_group_test_utils::add_group;
+
+    pub fn add_users(users_count: u8, groups_count: u8) -> Vec<User> {
+        let mut groups = Vec::new();
+        let mut users = Vec::new();
+        for _ in 0..groups_count {
+            let group_name = Uuid::new_v4().to_string();
+            groups.push(add_group(&group_name));
+        }
+
+        for _ in 0..users_count {
+            let user_id = Uuid::new_v4();
+            let input = AddUserOperationInput {
+                identities: vec![Principal::from_slice(user_id.as_bytes())],
+                groups: groups.iter().map(|g| g.id).collect(),
+                status: UserStatus::Active,
+                name: user_id.to_string(),
+            };
+
+            users.push(USER_SERVICE.add_user(input).unwrap());
+        }
+
+        users
     }
 }

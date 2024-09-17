@@ -73,7 +73,7 @@ const componentsMap: {
   AddAccount: null,
   AddRequestPolicy: null,
   AddAddressBookEntry: null,
-  ChangeCanister: null,
+  SystemUpgrade: null,
   ManageSystemInfo: null,
   // below variants require more specific specifier model
   Transfer: TransferSpecifier,
@@ -91,6 +91,7 @@ const componentsMap: {
   CreateExternalCanister: UnsupportedSpecifier,
   CallExternalCanister: UnsupportedSpecifier,
   SetDisasterRecovery: UnsupportedSpecifier,
+  FundExternalCanister: UnsupportedSpecifier,
 };
 
 function isKeyOfRequestSpecifier(key: string): key is keyof RequestSpecifier {
@@ -217,7 +218,7 @@ watch(
       case RequestSpecifierEnum.Transfer:
         model.value = { [specifier.value]: { Any: null } };
         break;
-      case RequestSpecifierEnum.ChangeCanister:
+      case RequestSpecifierEnum.SystemUpgrade:
         model.value = { [specifier.value]: null };
         break;
       case RequestSpecifierEnum.EditUser:
@@ -233,6 +234,9 @@ watch(
         model.value = { [specifier.value]: { Any: null } };
         break;
       case RequestSpecifierEnum.CreateExternalCanister:
+        model.value = { [specifier.value]: null };
+        break;
+      case RequestSpecifierEnum.FundExternalCanister:
         model.value = { [specifier.value]: { Any: null } };
         break;
       case RequestSpecifierEnum.CallExternalCanister:
