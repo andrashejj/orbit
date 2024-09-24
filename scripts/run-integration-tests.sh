@@ -47,4 +47,8 @@ if [ $DOWNLOAD_ASSET_CANISTER == "true" ]; then
     ./scripts/download-asset-canister-wasm.sh
 fi
 
+# some script to install anvil and make sure it's available in $PATH
+./scripts/install-anvil.sh
+
+# run the tests
 cargo test --package integration-tests $TESTNAME -- --test-threads $TEST_THREADS --nocapture

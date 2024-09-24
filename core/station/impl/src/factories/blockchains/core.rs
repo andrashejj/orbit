@@ -1,4 +1,5 @@
 use super::Ethereum;
+use super::EthereumNetwork;
 use super::InternetComputer;
 
 use crate::{
@@ -86,8 +87,11 @@ impl BlockchainApiFactory {
     ) -> Result<Box<dyn BlockchainApi>, FactoryError> {
         match blockchain {
             Blockchain::InternetComputer => Ok(Box::new(InternetComputer::create())),
-            Blockchain::Ethereum => Ok(Box::new(Ethereum::create(false))),
-            Blockchain::EthereumSepolia => Ok(Box::new(Ethereum::create(true))),
+            Blockchain::Ethereum => Ok(Box::new(Ethereum::create(EthereumNetwork::Mainnet))),
+            Blockchain::EthereumSepolia => Ok(Box::new(Ethereum::create(EthereumNetwork::Sepolia))),
+            Blockchain::EthereumLocalnet => {
+                Ok(Box::new(Ethereum::create(EthereumNetwork::Localnet)))
+            }
             blockchain => Err(FactoryError::UnsupportedBlockchainAccount {
                 blockchain: blockchain.to_string(),
                 standard: standard.to_string(),

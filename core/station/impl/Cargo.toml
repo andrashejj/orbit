@@ -42,17 +42,8 @@ thiserror = { workspace = true }
 uuid = { workspace = true, features = ['v4'] }
 station-api = { path = '../api', version = '0.0.2-alpha.5' }
 upgrader-api = { path = '../../upgrader/api', version = '0.0.2-alpha.4' }
-alloy = { version = "0.2.0", features = [
-    "signers",
-    "network",
-    "rpc",
-    "rpc-types",
-    "k256",
-    "consensus",
-    "eips",
-    "contract",
-] }
-alloy-chains = "0.1.23"
+alloy = { workspace = true }
+alloy-chains = { workspace = true }
 evm-rpc-canister-types = "1.0.0"
 serde_json = { workspace = true }
 rand = "0.8.5"

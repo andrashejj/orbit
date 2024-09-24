@@ -3,6 +3,10 @@ use crate::interfaces::{
 };
 use crate::utils::{controller_test_id, minter_test_id, set_controllers, NNS_ROOT_CANISTER_ID};
 use crate::{CanisterIds, TestEnv};
+use alloy::node_bindings::AnvilInstance;
+use alloy::providers::fillers::FillProvider;
+use alloy::providers::Provider;
+use alloy::{node_bindings::Anvil, providers::ProviderBuilder};
 use candid::{CandidType, Encode, Principal};
 use control_panel_api::UploadCanisterModulesInput;
 use ic_ledger_types::{AccountIdentifier, Tokens, DEFAULT_SUBACCOUNT};
