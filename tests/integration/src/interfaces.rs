@@ -123,15 +123,15 @@ pub fn send_eth_to_account(
     env: &PocketIc,
     sender_id: Principal,
     beneficiary_account: AccountIdentifier,
-    eth: u64,
-    nonce: u64,
+    e8s: u64,
+    memo: u64,
     from_subaccount: Option<Subaccount>,
 ) -> Result<u64, TransferError> {
     let ledger_canister_id = Principal::from_text("ryjl3-tyaaa-aaaaa-aaaba-cai").unwrap();
     let transfer_args = TransferArgs {
-        memo: Memo(0),
-        amount: Tokens::from_e8s(eth),
-        fee: Tokens::from_e8s(0),
+        memo: Memo(memo),
+        amount: Tokens::from_e8s(e8s),
+        fee: Tokens::from_e8s(10_000),
         from_subaccount,
         to: beneficiary_account,
         created_at_time: None,
