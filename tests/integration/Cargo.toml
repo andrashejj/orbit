@@ -5,7 +5,17 @@ version = '0.0.1'
 edition = '2021'
 
 [dependencies]
-alloy = { workspace = true }
+alloy = { version = "0.2.1", features = [
+    "signers",
+    "network",
+    "rpc",
+    "rpc-types",
+    "k256",
+    "consensus",
+    "eips",
+    "contract",
+    "node-bindings",
+] }
 candid = { workspace = true }
 candid_parser = { workspace = true }
 dfx-orbit = { path = '../../tools/dfx-orbit', version = '0.3.0' }

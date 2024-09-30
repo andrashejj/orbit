@@ -31,18 +31,7 @@ codegen-units = 1
 incremental = true
 
 [workspace.dependencies]
-alloy = { version = "0.2.0", features = [
-    "signers",
-    "network",
-    "rpc",
-    "rpc-types",
-    "k256",
-    "consensus",
-    "eips",
-    "contract",
-    "node-bindings",
-] }
-alloy-chains = "0.1.23"
+
 anyhow = "1.0.75"
 deunicode = "1.4.4"
 async-trait = "0.1"
