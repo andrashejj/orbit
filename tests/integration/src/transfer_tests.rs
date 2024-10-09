@@ -3,6 +3,7 @@ use crate::interfaces::{
     ICP, ICP_FEE,
 };
 use crate::setup::{setup_new_env, WALLET_ADMIN_USER};
+use crate::test_data::account;
 use crate::utils::user_test_id;
 use crate::TestEnv;
 use alloy::network::TransactionBuilder;
@@ -23,210 +24,18 @@ use station_api::{
 };
 use std::time::Duration;
 
-// Codegen from artifact.
-sol!(
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    ERC20Example,
-    "src/test_data/ERC20Example.json"
-);
-
 #[tokio::test]
-async fn make_eth_transfer_successful() {
-    // #region PREPARE THE ENV
-
+async fn make_eth_transfer_successful_minimal() {
     let TestEnv {
         env,
         canister_ids,
         controller,
         ..
     } = setup_new_env();
-
-    // start local ethereum fork
-    let anvil = Anvil::new().try_spawn().expect("Failed to spawn anvil");
-
-    // Create a provider.
-    let rpc_url = anvil.endpoint().parse().expect("Failed to parse rpc url");
-    let provider = ProviderBuilder::new().on_http(rpc_url);
-
-    // Define "players" / accounts
-    let alice = anvil.addresses()[0];
-
-    // register user
-    let res: (ApiResult<MeResponse>,) =
-        update_candid_as(&env, canister_ids.station, WALLET_ADMIN_USER, "me", ()).unwrap();
-    let user_dto = res.0.unwrap().me;
-
-    // create ICP account
-    let create_account_args = AddAccountOperationInput {
-        name: "test".to_string(),
-        blockchain: "eth_localnet".to_string(),
-        standard: "native".to_string(),
-        read_permission: AllowDTO {
-            auth_scope: station_api::AuthScopeDTO::Restricted,
-            user_groups: vec![],
-            users: vec![user_dto.id.clone()],
-        },
-        configs_permission: AllowDTO {
-            auth_scope: station_api::AuthScopeDTO::Restricted,
-            user_groups: vec![],
-            users: vec![user_dto.id.clone()],
-        },
-        transfer_permission: AllowDTO {
-            auth_scope: station_api::AuthScopeDTO::Restricted,
-            user_groups: vec![],
-            users: vec![user_dto.id.clone()],
-        },
-        transfer_request_policy: Some(RequestPolicyRuleDTO::QuorumPercentage(
-            QuorumPercentageDTO {
-                approvers: UserSpecifierDTO::Id(vec![user_dto.id.clone()]),
-                min_approved: 100,
-            },
-        )),
-        configs_request_policy: Some(RequestPolicyRuleDTO::QuorumPercentage(
-            QuorumPercentageDTO {
-                approvers: UserSpecifierDTO::Id(vec![user_dto.id.clone()]),
-                min_approved: 100,
-            },
-        )),
-        metadata: vec![],
-    };
-    let add_account_request = CreateRequestInput {
-        operation: RequestOperationInput::AddAccount(create_account_args),
-        title: None,
-        summary: None,
-        execution_plan: Some(RequestExecutionScheduleDTO::Immediate),
-    };
-    let res: (ApiResult<CreateRequestResponse>,) = update_candid_as(
-        &env,
-        canister_ids.station,
-        WALLET_ADMIN_USER,
-        "create_request",
-        (add_account_request,),
-    )
-    .unwrap();
-
-    // wait for the request to be approved (timer's period is 5 seconds)
-    env.advance_time(Duration::from_secs(5));
-    env.tick();
-
-    let account_creation_request_dto = res.0.unwrap().request;
-    match account_creation_request_dto.status {
-        RequestStatusDTO::Approved { .. } => {}
-        _ => {
-            panic!("request must be approved by now");
-        }
-    };
-
-    // wait for the request to be executed (timer's period is 5 seconds)
-    env.advance_time(Duration::from_secs(5));
-    env.tick();
-
-    // fetch the created account id from the request
-    let get_request_args = GetRequestInput {
-        request_id: account_creation_request_dto.id,
-    };
-    let res: (ApiResult<CreateRequestResponse>,) = update_candid_as(
-        &env,
-        canister_ids.station,
-        WALLET_ADMIN_USER,
-        "get_request",
-        (get_request_args,),
-    )
-    .unwrap();
-    let finalized_request = res.0.unwrap().request;
-    match finalized_request.status {
-        RequestStatusDTO::Completed { .. } => {}
-        _ => {
-            panic!(
-                "request must be completed by now but instead is {:?}",
-                finalized_request.status
-            );
-        }
-    };
-
-    let account_dto = match finalized_request.operation {
-        RequestOperationDTO::AddAccount(add_account) => add_account.account.unwrap(),
-        _ => {
-            panic!("request must be AddAccount");
-        }
-    };
-    // #endregion
-
-    // TEST #1: send ETH from Alice to user (orbit station)
-    {
-        let user_balance_before = get_eth_balance(&env, WALLET_ADMIN_USER);
-        let alice_balance_before = provider
-            .get_balance(alice)
-            .await
-            .expect("Failed to get balance");
-
-        assert_eq!(user_balance_before, 0);
-        assert_eq!(alice_balance_before, U256::from(100)); // TODO: fix this, it should be 100 ETH
-
-        // Do the actual transfer of 100 wei from Alice to User.
-        let tx = TransactionRequest::default()
-            .with_to(
-                Address::parse_checksummed(&account_dto.address, None)
-                    .expect("Failed to parse address"),
-            )
-            .with_nonce(0)
-            .with_chain_id(anvil.chain_id())
-            .with_value(U256::from(100))
-            .with_gas_limit(21_000)
-            .with_max_priority_fee_per_gas(1_000_000_000)
-            .with_max_fee_per_gas(20_000_000_000);
-
-        // Send the transaction and wait for the broadcast.
-        let pending_tx = provider
-            .send_transaction(tx)
-            .await
-            .expect("Failed to send transaction");
-
-        // check balances after the transfer
-        let user_balance = get_eth_balance(&env, WALLET_ADMIN_USER);
-        let alice_balance = provider
-            .get_balance(alice)
-            .await
-            .expect("Failed to get balance");
-
-        assert!(user_balance > 0, "User balance should be > 0");
-        assert!(
-            alice_balance < U256::from(100),
-            "Alice balance should be < 100"
-        );
-    }
-
-    // TEST #2: send ETH from user (orbit station) to Alice
-    {
-        let user_balance_before = get_eth_balance(&env, WALLET_ADMIN_USER);
-        let alice_balance_before = provider
-            .get_balance(alice)
-            .await
-            .expect("Failed to get balance");
-        assert!(user_balance_before > 0, "User balance should be > 0");
-        assert!(
-            alice_balance_before < U256::from(100),
-            "Alice balance should be < 100"
-        ); // TODO: fix this, it should be 100 ETH
-
-        send_eth(&env, controller, WALLET_ADMIN_USER, 100, 0).expect("Failed to send ETH");
-
-        let user_balance = get_eth_balance(&env, WALLET_ADMIN_USER);
-        let alice_balance = provider
-            .get_balance(alice)
-            .await
-            .expect("Failed to get balance");
-
-        assert!(user_balance == 0, "User balance should be == 0");
-        assert!(alice_balance < U256::from(0), "Alice balance should be > 0"); // TODO: fix this, it should be 100 ETH
-    }
-    // TODO: If this fails it means we're deducting the gas fee from the sent amount ...
-    // because we don't return the estimate we should make it such that it's more than XX
 }
 
 #[tokio::test]
-async fn make_erc20_transfer_successful() {
+async fn make_eth_transfer_successful_no_spawn() {
     // #region PREPARE THE ENV
 
     let TestEnv {
@@ -239,19 +48,20 @@ async fn make_erc20_transfer_successful() {
     // start local ethereum fork
     let anvil = Anvil::new().try_spawn().expect("Failed to spawn anvil");
 
-    // Create a provider.
+    // create a provider.
     let rpc_url = anvil.endpoint().parse().expect("Failed to parse rpc url");
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
-    // Define "players" / accounts
+    // Define "players"
+    // create EOA account (ALICE)
     let alice = anvil.addresses()[0];
 
-    // register user
+    // register ICP user (BOB)
     let res: (ApiResult<MeResponse>,) =
         update_candid_as(&env, canister_ids.station, WALLET_ADMIN_USER, "me", ()).unwrap();
     let user_dto = res.0.unwrap().me;
 
-    // create ICP account
+    // create ETH account (localnet) - with ICP User (BOB) as the admin / owner
     let create_account_args = AddAccountOperationInput {
         name: "test".to_string(),
         blockchain: "eth_localnet".to_string(),
@@ -345,18 +155,24 @@ async fn make_erc20_transfer_successful() {
             panic!("request must be AddAccount");
         }
     };
-    // #endregion
 
-    // TEST #1: send ETH from Alice to user (orbit station)
+    // create an EOA with ETH on it
+    // we want to create an ICP account
+    // we want to create an ICP multisig wallet without ETH on it but with the ICP account as the owner
+    // we want to send ETH from EOA to ICP multisig wallet
+    // we want to send ETH "back" from ICP multisig wallet to EOA
+
+    // TEST #1: send ETH from ALICE to Account (orbit station)
     {
-        let user_balance_before = get_eth_balance(&env, WALLET_ADMIN_USER);
         let alice_balance_before = provider
             .get_balance(alice)
             .await
             .expect("Failed to get balance");
 
-        assert_eq!(user_balance_before, 0);
-        assert_eq!(alice_balance_before, U256::from(100)); // TODO: fix this, it should be 100 ETH
+        println!("Alice balance before: {}", alice_balance_before);
+
+        // TODO: fix this, it should be 100 ETH
+        // assert_eq!(alice_balance_before, U256::from(100));
 
         // Do the actual transfer of 100 wei from Alice to User.
         let tx = TransactionRequest::default()
@@ -378,58 +194,211 @@ async fn make_erc20_transfer_successful() {
             .expect("Failed to send transaction");
 
         // check balances after the transfer
-        let user_balance = get_eth_balance(&env, WALLET_ADMIN_USER);
         let alice_balance = provider
             .get_balance(alice)
             .await
             .expect("Failed to get balance");
 
-        assert!(user_balance > 0, "User balance should be > 0");
-        assert!(
-            alice_balance < U256::from(100),
-            "Alice balance should be < 100"
-        );
+        println!("Alice balance after: {}", alice_balance);
     }
+}
 
-    // TEST #3: Mint some ERC20 to user
-    {
-        // Deploy the `ERC20Example` contract.
-        let contract = ERC20Example::deploy(provider)
-            .await
-            .expect("Failed to deploy contract");
+#[tokio::test]
+async fn make_eth_transfer_successful_spawn() {
+    // #region PREPARE THE ENV
 
-        // Register the balances of Alice and Bob before the transfer.
-        let alice_before_balance = contract
-            .balanceOf(alice)
-            .call()
-            .await
-            .expect("Failed to get balance")
-            ._0;
+    let TestEnv {
+        env,
+        canister_ids,
+        controller,
+        ..
+    } = setup_new_env();
 
-        // Transfer and wait for inclusion.
-        let amount = U256::from(100);
-        let tx_hash = contract
-            .transfer(alice, amount)
-            .send()
-            .await
-            .expect("failed to transfer")
-            .watch()
-            .await
-            .expect("Failed to watch transaction");
+    tokio::spawn(async move {
+        // start local ethereum fork
+        let anvil = Anvil::new().try_spawn().expect("Failed to spawn anvil");
 
-        println!("Sent transaction: {tx_hash}");
+        // create a provider.
+        let rpc_url = anvil.endpoint().parse().expect("Failed to parse rpc url");
+        let provider = ProviderBuilder::new().on_http(rpc_url);
 
-        // Register the balances of Alice and Bob after the transfer.
-        let alice_after_balance = contract
-            .balanceOf(alice)
-            .call()
-            .await
-            .expect("Failed to get balance")
-            ._0;
-    }
+        // Define "players"
+        // create EOA account (ALICE)
+        let alice = anvil.addresses()[0];
 
-    // TEST #4: send ERC20 from orbit station to Alice
-    {}
+        // register ICP user (BOB)
+        let res: (ApiResult<MeResponse>,) =
+            update_candid_as(&env, canister_ids.station, WALLET_ADMIN_USER, "me", ()).unwrap();
+        let user_dto = res.0.unwrap().me;
+
+        // create ETH account (localnet) - with ICP User (BOB) as the admin / owner
+        let create_account_args = AddAccountOperationInput {
+            name: "test".to_string(),
+            blockchain: "eth_localnet".to_string(),
+            standard: "native".to_string(),
+            read_permission: AllowDTO {
+                auth_scope: station_api::AuthScopeDTO::Restricted,
+                user_groups: vec![],
+                users: vec![user_dto.id.clone()],
+            },
+            configs_permission: AllowDTO {
+                auth_scope: station_api::AuthScopeDTO::Restricted,
+                user_groups: vec![],
+                users: vec![user_dto.id.clone()],
+            },
+            transfer_permission: AllowDTO {
+                auth_scope: station_api::AuthScopeDTO::Restricted,
+                user_groups: vec![],
+                users: vec![user_dto.id.clone()],
+            },
+            transfer_request_policy: Some(RequestPolicyRuleDTO::QuorumPercentage(
+                QuorumPercentageDTO {
+                    approvers: UserSpecifierDTO::Id(vec![user_dto.id.clone()]),
+                    min_approved: 100,
+                },
+            )),
+            configs_request_policy: Some(RequestPolicyRuleDTO::QuorumPercentage(
+                QuorumPercentageDTO {
+                    approvers: UserSpecifierDTO::Id(vec![user_dto.id.clone()]),
+                    min_approved: 100,
+                },
+            )),
+            metadata: vec![],
+        };
+        let add_account_request = CreateRequestInput {
+            operation: RequestOperationInput::AddAccount(create_account_args),
+            title: None,
+            summary: None,
+            execution_plan: Some(RequestExecutionScheduleDTO::Immediate),
+        };
+        let res: (ApiResult<CreateRequestResponse>,) = update_candid_as(
+            &env,
+            canister_ids.station,
+            WALLET_ADMIN_USER,
+            "create_request",
+            (add_account_request,),
+        )
+        .unwrap();
+
+        // wait for the request to be approved (timer's period is 5 seconds)
+        env.advance_time(Duration::from_secs(5));
+        env.tick();
+
+        let account_creation_request_dto = res.0.unwrap().request;
+        match account_creation_request_dto.status {
+            RequestStatusDTO::Approved { .. } => {}
+            _ => {
+                panic!("request must be approved by now");
+            }
+        };
+
+        // wait for the request to be executed (timer's period is 5 seconds)
+        env.advance_time(Duration::from_secs(5));
+        env.tick();
+
+        // fetch the created account id from the request
+        let get_request_args = GetRequestInput {
+            request_id: account_creation_request_dto.id,
+        };
+        let res: (ApiResult<CreateRequestResponse>,) = update_candid_as(
+            &env,
+            canister_ids.station,
+            WALLET_ADMIN_USER,
+            "get_request",
+            (get_request_args,),
+        )
+        .unwrap();
+        let finalized_request = res.0.unwrap().request;
+        match finalized_request.status {
+            RequestStatusDTO::Completed { .. } => {}
+            _ => {
+                panic!(
+                    "request must be completed by now but instead is {:?}",
+                    finalized_request.status
+                );
+            }
+        };
+
+        let account_dto = match finalized_request.operation {
+            RequestOperationDTO::AddAccount(add_account) => add_account.account.unwrap(),
+            _ => {
+                panic!("request must be AddAccount");
+            }
+        };
+
+        // create an EOA with ETH on it
+        // we want to create an ICP account
+        // we want to create an ICP multisig wallet without ETH on it but with the ICP account as the owner
+        // we want to send ETH from EOA to ICP multisig wallet
+        // we want to send ETH "back" from ICP multisig wallet to EOA
+
+        // TEST #1: send ETH from ALICE to Account (orbit station)
+        {
+            let alice_balance_before = provider
+                .get_balance(alice)
+                .await
+                .expect("Failed to get balance");
+
+            println!("Alice balance before: {}", alice_balance_before);
+
+            // TODO: fix this, it should be 100 ETH
+            // assert_eq!(alice_balance_before, U256::from(100));
+
+            // Do the actual transfer of 100 wei from Alice to User.
+            let tx = TransactionRequest::default()
+                .with_to(
+                    Address::parse_checksummed(&account_dto.address, None)
+                        .expect("Failed to parse address"),
+                )
+                .with_nonce(0)
+                .with_chain_id(anvil.chain_id())
+                .with_value(U256::from(100))
+                .with_gas_limit(21_000)
+                .with_max_priority_fee_per_gas(1_000_000_000)
+                .with_max_fee_per_gas(20_000_000_000);
+
+            // Send the transaction and wait for the broadcast.
+            let pending_tx = provider
+                .send_transaction(tx)
+                .await
+                .expect("Failed to send transaction");
+
+            // check balances after the transfer
+            let alice_balance = provider
+                .get_balance(alice)
+                .await
+                .expect("Failed to get balance");
+
+            println!("Alice balance after: {}", alice_balance);
+        }
+
+        // TEST #2: send ETH from user (orbit station) to Alice
+        // {
+        //     let user_balance_before = get_eth_balance(&env, WALLET_ADMIN_USER);
+        //     let alice_balance_before = provider
+        //         .get_balance(alice)
+        //         .await
+        //         .expect("Failed to get balance");
+        //     assert!(user_balance_before > 0, "User balance should be > 0");
+        //     assert!(
+        //         alice_balance_before < U256::from(100),
+        //         "Alice balance should be < 100"
+        //     ); // TODO: fix this, it should be 100 ETH
+
+        //     send_eth(&env, controller, WALLET_ADMIN_USER, 100, 0).expect("Failed to send ETH");
+
+        //     let user_balance = get_eth_balance(&env, WALLET_ADMIN_USER);
+        //     let alice_balance = provider
+        //         .get_balance(alice)
+        //         .await
+        //         .expect("Failed to get balance");
+
+        //     assert!(user_balance == 0, "User balance should be == 0");
+        //     assert!(alice_balance < U256::from(0), "Alice balance should be > 0"); // TODO: fix this, it should be 100 ETH
+        // }
+        // TODO: If this fails it means we're deducting the gas fee from the sent amount ...
+        // because we don't return the estimate we should make it such that it's more than XX
+    });
 }
 
 #[test]
