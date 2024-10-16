@@ -6,9 +6,7 @@ use crate::{CanisterIds, TestEnv};
 use candid::{CandidType, Encode, Principal};
 use control_panel_api::UploadCanisterModulesInput;
 use evm_rpc_canister_types::{
-    BlockTag, EthMainnetService, EthSepoliaService, InitArgs, MultiSendRawTransactionResult,
-    RegisterProviderArgs, RpcApi, RpcConfig, RpcService, RpcServices, SendRawTransactionResult,
-    SendRawTransactionStatus, EVM_RPC,
+    BlockTag, InitArgs, RegisterProviderArgs, RpcApi, RpcConfig, RpcServices,
 };
 use ic_cdk::api::management_canister::http_request::HttpHeader;
 use ic_ledger_types::{AccountIdentifier, Tokens, DEFAULT_SUBACCOUNT};
@@ -256,6 +254,17 @@ fn install_canisters(
         url: "http://localhost:8545".to_string(),
         headers: Some(vec![]),
     };
+
+    let providers = env
+        .update_call(
+            evm_rpc_canister_id,
+            controller,
+            "getProviders",
+            Encode!(&()).unwrap(),
+        )
+        .unwrap();
+
+    println!("EVM RPC providers: {:?}", providers);
 
     let getBlockNumberArgs: (RpcServices, Option<RpcConfig>, BlockTag) = (
         RpcServices::Custom {

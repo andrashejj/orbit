@@ -25,6 +25,10 @@ use tokio::runtime::Runtime;
 #[test]
 fn make_eth_transfer_successful_no_spawn() {
     // #region PREPARE THE ENV
+    // start local ethereum fork
+    let anvil = Anvil::at("/home/vscode/.foundry/bin/anvil")
+        .try_spawn()
+        .expect("Failed to spawn anvil");
 
     let TestEnv {
         env,
@@ -32,11 +36,6 @@ fn make_eth_transfer_successful_no_spawn() {
         controller,
         ..
     } = setup_new_env();
-
-    // start local ethereum fork
-    let anvil = Anvil::at("/home/vscode/.foundry/bin/anvil")
-        .try_spawn()
-        .expect("Failed to spawn anvil");
 
     // create a provider.
     let rpc_url = anvil.endpoint().parse().expect("Failed to parse rpc url");
