@@ -5,6 +5,18 @@ version = '0.0.1'
 edition = '2021'
 
 [dependencies]
+evm-rpc-canister-types = "1.0.0"
+alloy = { version = "0.2.1", features = [
+    "signers",
+    "network",
+    "rpc",
+    "rpc-types",
+    "k256",
+    "consensus",
+    "eips",
+    "contract",
+    "node-bindings",
+] }
 candid = { workspace = true }
 candid_parser = { workspace = true }
 dfx-orbit = { path = '../../tools/dfx-orbit', version = '0.3.0' }
@@ -29,3 +41,4 @@ control-panel-api = { path = '../../core/control-panel/api', version = '0.0.2-al
 upgrader-api = { path = '../../core/upgrader/api', version = '0.0.2-alpha.4' }
 station-api = { path = '../../core/station/api', version = '0.0.2-alpha.5' }
 wat = { workspace = true }
+

@@ -10,6 +10,7 @@ pub enum Blockchain {
     InternetComputer,
     Ethereum,
     EthereumSepolia,
+    EthereumLocalnet,
     Bitcoin,
 }
 
@@ -20,6 +21,7 @@ impl Blockchain {
             Blockchain::InternetComputer => "ICP",
             Blockchain::Ethereum => "ETH",
             Blockchain::EthereumSepolia => "ETH",
+            Blockchain::EthereumLocalnet => "ETH",
             Blockchain::Bitcoin => "BTC",
         }
     }
@@ -32,6 +34,9 @@ impl Blockchain {
             }
             Blockchain::Ethereum => vec![BlockchainStandard::Native, BlockchainStandard::ERC20],
             Blockchain::EthereumSepolia => {
+                vec![BlockchainStandard::Native, BlockchainStandard::ERC20]
+            }
+            Blockchain::EthereumLocalnet => {
                 vec![BlockchainStandard::Native, BlockchainStandard::ERC20]
             }
             Blockchain::Bitcoin => vec![BlockchainStandard::Native],
@@ -47,6 +52,7 @@ impl FromStr for Blockchain {
             "icp" => Ok(Blockchain::InternetComputer),
             "eth" => Ok(Blockchain::Ethereum),
             "eth_sepolia" => Ok(Blockchain::EthereumSepolia),
+            "eth_localnet" => Ok(Blockchain::EthereumLocalnet),
             "btc" => Ok(Blockchain::Bitcoin),
             _ => Err(()),
         }
@@ -59,6 +65,7 @@ impl Display for Blockchain {
             Blockchain::InternetComputer => write!(f, "icp"),
             Blockchain::Ethereum => write!(f, "eth"),
             Blockchain::EthereumSepolia => write!(f, "eth_sepolia"),
+            Blockchain::EthereumLocalnet => write!(f, "eth_localnet"),
             Blockchain::Bitcoin => write!(f, "btc"),
         }
     }

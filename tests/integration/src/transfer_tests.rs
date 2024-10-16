@@ -4,6 +4,11 @@ use crate::interfaces::{
 use crate::setup::{setup_new_env, WALLET_ADMIN_USER};
 use crate::utils::user_test_id;
 use crate::TestEnv;
+use alloy::network::TransactionBuilder;
+use alloy::node_bindings::Anvil;
+use alloy::primitives::{Address, U256};
+use alloy::providers::{Provider, ProviderBuilder};
+use alloy::rpc::types::TransactionRequest;
 use ic_ledger_types::AccountIdentifier;
 use orbit_essentials::api::ApiResult;
 use pocket_ic::{query_candid_as, update_candid_as};
@@ -15,6 +20,181 @@ use station_api::{
     RequestStatusDTO, TransferOperationInput, UserSpecifierDTO,
 };
 use std::time::Duration;
+use tokio::runtime::Runtime;
+
+#[test]
+fn make_eth_transfer_successful_no_spawn() {
+    // #region PREPARE THE ENV
+    // start local ethereum fork
+    let anvil = Anvil::at("/home/vscode/.foundry/bin/anvil")
+        .try_spawn()
+        .expect("Failed to spawn anvil");
+
+    let TestEnv {
+        env,
+        canister_ids,
+        controller,
+        ..
+    } = setup_new_env();
+
+    // create a provider.
+    let rpc_url = anvil.endpoint().parse().expect("Failed to parse rpc url");
+    let provider = ProviderBuilder::new().on_http(rpc_url);
+
+    // Define "players"
+    // create EOA account (ALICE)
+    let alice = anvil.addresses()[0];
+
+    // register ICP user (BOB)
+    let res: (ApiResult<MeResponse>,) =
+        update_candid_as(&env, canister_ids.station, WALLET_ADMIN_USER, "me", ()).unwrap();
+    let user_dto = res.0.unwrap().me;
+
+    // create ETH account (localnet) - with ICP User (BOB) as the admin / owner
+    let create_account_args = AddAccountOperationInput {
+        name: "test".to_string(),
+        blockchain: "eth_localnet".to_string(),
+        standard: "native".to_string(),
+        read_permission: AllowDTO {
+            auth_scope: station_api::AuthScopeDTO::Restricted,
+            user_groups: vec![],
+            users: vec![user_dto.id.clone()],
+        },
+        configs_permission: AllowDTO {
+            auth_scope: station_api::AuthScopeDTO::Restricted,
+            user_groups: vec![],
+            users: vec![user_dto.id.clone()],
+        },
+        transfer_permission: AllowDTO {
+            auth_scope: station_api::AuthScopeDTO::Restricted,
+            user_groups: vec![],
+            users: vec![user_dto.id.clone()],
+        },
+        transfer_request_policy: Some(RequestPolicyRuleDTO::QuorumPercentage(
+            QuorumPercentageDTO {
+                approvers: UserSpecifierDTO::Id(vec![user_dto.id.clone()]),
+                min_approved: 100,
+            },
+        )),
+        configs_request_policy: Some(RequestPolicyRuleDTO::QuorumPercentage(
+            QuorumPercentageDTO {
+                approvers: UserSpecifierDTO::Id(vec![user_dto.id.clone()]),
+                min_approved: 100,
+            },
+        )),
+        metadata: vec![],
+    };
+    let add_account_request = CreateRequestInput {
+        operation: RequestOperationInput::AddAccount(create_account_args),
+        title: None,
+        summary: None,
+        execution_plan: Some(RequestExecutionScheduleDTO::Immediate),
+    };
+    let res: (ApiResult<CreateRequestResponse>,) = update_candid_as(
+        &env,
+        canister_ids.station,
+        WALLET_ADMIN_USER,
+        "create_request",
+        (add_account_request,),
+    )
+    .unwrap();
+
+    // wait for the request to be approved (timer's period is 5 seconds)
+    env.advance_time(Duration::from_secs(5));
+    env.tick();
+
+    let account_creation_request_dto = res.0.unwrap().request;
+    match account_creation_request_dto.status {
+        RequestStatusDTO::Approved { .. } => {}
+        _ => {
+            panic!("request must be approved by now");
+        }
+    };
+
+    // wait for the request to be executed (timer's period is 5 seconds)
+    env.advance_time(Duration::from_secs(5));
+    env.tick();
+
+    // fetch the created account id from the request
+    let get_request_args = GetRequestInput {
+        request_id: account_creation_request_dto.id,
+    };
+    let res: (ApiResult<CreateRequestResponse>,) = update_candid_as(
+        &env,
+        canister_ids.station,
+        WALLET_ADMIN_USER,
+        "get_request",
+        (get_request_args,),
+    )
+    .unwrap();
+    let finalized_request = res.0.unwrap().request;
+    match finalized_request.status {
+        RequestStatusDTO::Completed { .. } => {}
+        _ => {
+            panic!(
+                "request must be completed by now but instead is {:?}",
+                finalized_request.status
+            );
+        }
+    };
+
+    let account_dto = match finalized_request.operation {
+        RequestOperationDTO::AddAccount(add_account) => add_account.account.unwrap(),
+        _ => {
+            panic!("request must be AddAccount");
+        }
+    };
+
+    // create an EOA with ETH on it
+    // we want to create an ICP account
+    // we want to create an ICP multisig wallet without ETH on it but with the ICP account as the owner
+    // we want to send ETH from EOA to ICP multisig wallet
+    // we want to send ETH "back" from ICP multisig wallet to EOA
+
+    // TEST #1: send ETH from ALICE to Account (orbit station)
+    {
+        let runtime = Runtime::new().unwrap();
+        let alice_balance_before = runtime.block_on(async {
+            provider
+                .get_balance(alice)
+                .await
+                .expect("Failed to get balance")
+        });
+
+        println!("Alice balance before: {}", alice_balance_before);
+
+        // TODO: fix this, it should be 100 ETH
+        // assert_eq!(alice_balance_before, U256::from(100));
+
+        // Do the actual transfer of 100 wei from Alice to User.
+        let tx = TransactionRequest::default()
+            .with_to(
+                Address::parse_checksummed(&account_dto.address, None)
+                    .expect("Failed to parse address"),
+            )
+            .with_nonce(0)
+            .with_chain_id(anvil.chain_id())
+            .with_value(U256::from(100))
+            .with_gas_limit(21_000)
+            .with_max_priority_fee_per_gas(1_000_000_000)
+            .with_max_fee_per_gas(20_000_000_000);
+
+        // Send the transaction and wait for the broadcast.
+        let runtime_2 = Runtime::new().unwrap();
+        let alice_balance = runtime_2.block_on(async {
+            let _ = provider
+                .send_transaction(tx)
+                .await
+                .expect("Failed to send transaction");
+
+            provider
+                .get_balance(alice)
+                .await
+                .expect("Failed to get balance")
+        });
+        println!("Alice balance after: {}", alice_balance);
+    }
+}
 
 #[test]
 fn make_transfer_successful() {

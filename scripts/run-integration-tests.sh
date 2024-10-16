@@ -41,10 +41,17 @@ if [ $DOWNLOAD_NNS_CANISTERS == "true" ]; then
     ./scripts/download-nns-canister-wasm.sh icp_ledger ledger-canister
     ./scripts/download-nns-canister-wasm.sh icp_index ic-icp-index-canister
     ./scripts/download-nns-canister-wasm.sh cmc cycles-minting-canister
+    # TODO: Fix this command
+    curl -so wasms/evm_rpc.wasm.gz https://github.com/internet-computer-protocol/evm-rpc-canister/releases/download/release-2024-05-23/evm_rpc.wasm.gz
+
 fi
 
 if [ $DOWNLOAD_ASSET_CANISTER == "true" ]; then
     ./scripts/download-asset-canister-wasm.sh
 fi
 
+# some script to install anvil and make sure it's available in $PATH
+./scripts/install-anvil.sh
+
+# run the tests
 cargo test --package integration-tests $TESTNAME -- --test-threads $TEST_THREADS --nocapture

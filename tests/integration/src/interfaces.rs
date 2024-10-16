@@ -1,3 +1,4 @@
+use alloy::primitives::U256;
 use candid::{CandidType, Principal};
 use ic_ledger_types::{
     AccountBalanceArgs, AccountIdentifier, Memo, Subaccount, Tokens, TransferArgs, TransferError,
@@ -101,4 +102,58 @@ pub fn send_icp(
 ) -> Result<u64, TransferError> {
     let to = AccountIdentifier::new(&beneficiary_id, &DEFAULT_SUBACCOUNT);
     send_icp_to_account(env, sender_id, to, e8s, memo, None)
+}
+
+pub fn get_eth_balance(env: &PocketIc, user_id: Principal) -> u64 {
+    let ledger_canister_id = Principal::from_text("ryjl3-tyaaa-aaaaa-aaaba-cai").unwrap();
+    let account = AccountIdentifier::new(&user_id, &DEFAULT_SUBACCOUNT);
+    let account_balance_args = AccountBalanceArgs { account };
+    let res: (Tokens,) = update_candid_as(
+        env,
+        ledger_canister_id,
+        Principal::anonymous(),
+        "account_balance",
+        (account_balance_args,),
+    )
+    .unwrap();
+    res.0.e8s()
+}
+
+pub fn send_eth_to_account(
+    env: &PocketIc,
+    sender_id: Principal,
+    beneficiary_account: AccountIdentifier,
+    e8s: u64,
+    memo: u64,
+    from_subaccount: Option<Subaccount>,
+) -> Result<u64, TransferError> {
+    let ledger_canister_id = Principal::from_text("ryjl3-tyaaa-aaaaa-aaaba-cai").unwrap();
+    let transfer_args = TransferArgs {
+        memo: Memo(memo),
+        amount: Tokens::from_e8s(e8s),
+        fee: Tokens::from_e8s(10_000),
+        from_subaccount,
+        to: beneficiary_account,
+        created_at_time: None,
+    };
+    let res: (Result<u64, TransferError>,) = update_candid_as(
+        env,
+        ledger_canister_id,
+        sender_id,
+        "transfer",
+        (transfer_args,),
+    )
+    .unwrap();
+    res.0
+}
+
+pub fn send_eth(
+    env: &PocketIc,
+    sender_id: Principal,
+    beneficiary_id: Principal,
+    eth: u64,
+    nonce: u64,
+) -> Result<u64, TransferError> {
+    let to = AccountIdentifier::new(&beneficiary_id, &DEFAULT_SUBACCOUNT);
+    send_eth_to_account(env, sender_id, to, eth, nonce, None)
 }

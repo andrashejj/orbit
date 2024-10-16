@@ -15,8 +15,8 @@ use alloy::{
 use async_trait::async_trait;
 use candid::Principal;
 use evm_rpc_canister_types::{
-    EthSepoliaService, MultiSendRawTransactionResult, RpcService, RpcServices,
-    SendRawTransactionResult, SendRawTransactionStatus, EVM_RPC,
+    EthMainnetService, EthSepoliaService, MultiSendRawTransactionResult, RpcApi, RpcService,
+    RpcServices, SendRawTransactionResult, SendRawTransactionStatus, EVM_RPC,
 };
 use num_bigint::BigUint;
 use std::{collections::BTreeMap, str::FromStr};
@@ -34,15 +34,16 @@ pub struct Ethereum {
 pub enum EthereumNetwork {
     Mainnet,
     Sepolia,
+    Localnet,
 }
 
 impl Ethereum {
-    pub fn create(testnet: bool) -> Self {
+    pub fn create(network: EthereumNetwork) -> Self {
         Self {
-            chain: if testnet {
-                alloy_chains::Chain::sepolia()
-            } else {
-                alloy_chains::Chain::mainnet()
+            chain: match network {
+                EthereumNetwork::Mainnet => alloy_chains::Chain::mainnet(),
+                EthereumNetwork::Sepolia => alloy_chains::Chain::sepolia(),
+                EthereumNetwork::Localnet => alloy_chains::Chain::dev(),
             },
         }
     }
@@ -445,14 +446,28 @@ fn get_evm_services(
     chain: &alloy_chains::Chain,
 ) -> Result<(RpcService, RpcServices), BlockchainApiError> {
     // TODO: we are returning single and multiple services for now because different functions expect either one or multiple services
-    let services = if chain.id() == alloy_chains::Chain::sepolia().id() {
+    let services = if chain.id() == alloy_chains::Chain::mainnet().id() {
+        (
+            RpcService::EthMainnet(EthMainnetService::Alchemy),
+            RpcServices::EthMainnet(Some(vec![EthMainnetService::Alchemy])),
+        )
+    } else if chain.id() == alloy_chains::Chain::sepolia().id() {
         (
             RpcService::EthSepolia(EthSepoliaService::Alchemy),
             RpcServices::EthSepolia(Some(vec![EthSepoliaService::Alchemy])),
         )
-        // } else if chain.id() == alloy_chains::Chain::mainnet().id() {
-        //     (RpcService::EthMainnet(EthMainnetService::Alchemy), RpcServices::EthMainnet(Some(vec![EthMainnetService::Alchemy]))) // TODO: support mainnet
-        // }
+    } else if chain.id() == alloy_chains::Chain::dev().id() {
+        let rpc_api = RpcApi {
+            url: "http://localhost:8545".to_string(),
+            headers: Some(vec![]),
+        };
+        (
+            RpcService::Custom(rpc_api.clone()),
+            RpcServices::Custom {
+                chainId: chain.id(),
+                services: vec![rpc_api.clone()],
+            },
+        )
     } else {
         return Err(BlockchainApiError::BlockchainNetworkError {
             info: format!("Chain {} is not supported", chain.id()),
