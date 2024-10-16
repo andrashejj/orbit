@@ -3358,6 +3358,7 @@ dependencies = [
  "candid_parser",
  "control-panel-api",
  "dfx-orbit",
+ "evm-rpc-canister-types 1.0.0",
  "flate2",
  "hex",
  "ic-cdk 0.13.5",

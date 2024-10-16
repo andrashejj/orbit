@@ -1,9 +1,7 @@
 use crate::interfaces::{
-    default_account, get_eth_balance, get_icp_balance, send_eth, send_icp, send_icp_to_account,
-    ICP, ICP_FEE,
+    default_account, get_icp_balance, send_icp, send_icp_to_account, ICP, ICP_FEE,
 };
 use crate::setup::{setup_new_env, WALLET_ADMIN_USER};
-use crate::test_data::account;
 use crate::utils::user_test_id;
 use crate::TestEnv;
 use alloy::network::TransactionBuilder;
@@ -11,7 +9,6 @@ use alloy::node_bindings::Anvil;
 use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::TransactionRequest;
-use alloy::sol;
 use ic_ledger_types::AccountIdentifier;
 use orbit_essentials::api::ApiResult;
 use pocket_ic::{query_candid_as, update_candid_as};

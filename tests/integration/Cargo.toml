@@ -5,6 +5,7 @@ version = '0.0.1'
 edition = '2021'
 
 [dependencies]
+evm-rpc-canister-types = "1.0.0"
 alloy = { version = "0.2.1", features = [
     "signers",
     "network",

@@ -3,12 +3,14 @@ use crate::interfaces::{
 };
 use crate::utils::{controller_test_id, minter_test_id, set_controllers, NNS_ROOT_CANISTER_ID};
 use crate::{CanisterIds, TestEnv};
-use alloy::node_bindings::AnvilInstance;
-use alloy::providers::fillers::FillProvider;
-use alloy::providers::Provider;
-use alloy::{node_bindings::Anvil, providers::ProviderBuilder};
 use candid::{CandidType, Encode, Principal};
 use control_panel_api::UploadCanisterModulesInput;
+use evm_rpc_canister_types::{
+    BlockTag, EthMainnetService, EthSepoliaService, InitArgs, MultiSendRawTransactionResult,
+    RegisterProviderArgs, RpcApi, RpcConfig, RpcService, RpcServices, SendRawTransactionResult,
+    SendRawTransactionStatus, EVM_RPC,
+};
+use ic_cdk::api::management_canister::http_request::HttpHeader;
 use ic_ledger_types::{AccountIdentifier, Tokens, DEFAULT_SUBACCOUNT};
 use pocket_ic::{query_candid_as, PocketIc, PocketIcBuilder};
 use serde::Serialize;
@@ -148,6 +150,14 @@ fn install_canisters(
         .unwrap();
     assert_eq!(cmc_canister_id, specified_cmc_canister_id);
 
+    let specified_evm_rpc_canister_id =
+        Principal::from_text("7hfb6-caaaa-aaaar-qadga-cai").unwrap();
+    let evm_rpc_canister_id = env
+        .create_canister_with_id(Some(controller), None, specified_evm_rpc_canister_id)
+        .unwrap();
+    assert_eq!(evm_rpc_canister_id, specified_evm_rpc_canister_id);
+    env.add_cycles(evm_rpc_canister_id, CANISTER_INITIAL_CYCLES);
+
     let specified_nns_exchange_rate_canister_id =
         Principal::from_text("uf6dk-hyaaa-aaaaq-qaaaq-cai").unwrap();
     let nns_exchange_rate_canister_id = env
@@ -214,6 +224,61 @@ fn install_canisters(
         Encode!(&cmc_init_args).unwrap(),
         Some(controller),
     );
+
+    let evm_rpc_canister_wasm = get_canister_wasm("evm_rpc").to_vec();
+    let evm_rpc_install_args = InitArgs {
+        nodesInSubnet: 1u32,
+    };
+    env.install_canister(
+        evm_rpc_canister_id,
+        evm_rpc_canister_wasm,
+        Encode!(&(evm_rpc_install_args)).unwrap(),
+        Some(controller),
+    );
+
+    let register_provider_args = RegisterProviderArgs {
+        hostname: "http://localhost:8545".to_string(),
+        cyclesPerCall: 0u64,
+        cyclesPerMessageByte: 0u64,
+        credentialPath: "".to_owned(),
+        credentialHeaders: None,
+        chainId: 31337u64,
+    };
+    env.update_call(
+        evm_rpc_canister_id,
+        controller,
+        "registerProvider",
+        Encode!(&register_provider_args).unwrap(),
+    )
+    .unwrap();
+
+    let rpc_api = RpcApi {
+        url: "http://localhost:8545".to_string(),
+        headers: Some(vec![]),
+    };
+
+    let getBlockNumberArgs: (RpcServices, Option<RpcConfig>, BlockTag) = (
+        RpcServices::Custom {
+            chainId: 31337u64,
+            services: vec![rpc_api.clone()],
+        },
+        None,
+        BlockTag::Latest,
+    );
+
+    let encodedPayload = Encode!(&getBlockNumberArgs).unwrap();
+
+    let result = env
+        .update_call(
+            evm_rpc_canister_id,
+            controller,
+            "eth_getBlockByNumber",
+            encodedPayload,
+        )
+        .unwrap();
+
+    // Test results
+    println!("EVM RPC call result: {:?}", result);
 
     let control_panel = create_canister_with_cycles(
         env,

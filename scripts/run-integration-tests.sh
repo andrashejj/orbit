@@ -41,6 +41,9 @@ if [ $DOWNLOAD_NNS_CANISTERS == "true" ]; then
     ./scripts/download-nns-canister-wasm.sh icp_ledger ledger-canister
     ./scripts/download-nns-canister-wasm.sh icp_index ic-icp-index-canister
     ./scripts/download-nns-canister-wasm.sh cmc cycles-minting-canister
+    # TODO: Fix this command
+    curl -so wasms/evm_rpc.wasm.gz https://github.com/internet-computer-protocol/evm-rpc-canister/releases/download/release-2024-05-23/evm_rpc.wasm.gz
+
 fi
 
 if [ $DOWNLOAD_ASSET_CANISTER == "true" ]; then
